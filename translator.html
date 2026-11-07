@@ -1,0 +1,2825 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>실시간 번역 봇</title>
+<style>
+  :root {
+    --bg: #0e1a2b;
+    --src-size: 20px;
+    --tgt-size: 36px;
+    --src-color: #d5dbe3;
+    --tgt-color: #ffffff;
+    --panel: #132033;
+    --line: #24344a;
+    --muted: #8ea0b5;
+    --accent: #7eb6ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+    background: var(--bg);
+    color: #f4f7fb;
+    overflow: hidden;
+  }
+  body.has-image {
+    background-image: var(--bg-image);
+    background-size: cover;
+    background-position: center;
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  #app { height: 100%; display: flex; flex-direction: column; }
+  #status {
+    display: flex; align-items: center; gap: 10px;
+    min-height: 44px; padding: 8px 12px;
+    background: rgba(0, 0, 0, 0.28);
+    border-bottom: 1px solid var(--line);
+  }
+  #menuBtn, #jumpBtn, .bar-btn {
+    background: #1c2c42; border: 1px solid var(--line); color: #fff;
+    border-radius: 8px; padding: 6px 10px;
+  }
+  #menuBtn { font-size: 18px; line-height: 1; }
+  #statusText { color: var(--muted); font-size: 13px; }
+  #dot { width: 8px; height: 8px; border-radius: 50%; background: #66788c; display: inline-block; }
+  #dot.on { background: #3ddc84; }
+  #transcript {
+    flex: 1; overflow-y: auto; padding: 28px 8vw 80px;
+  }
+  .empty { color: var(--muted); text-align: center; margin-top: 18vh; line-height: 1.6; }
+  .item { margin: 0 0 22px; max-width: 920px; }
+  .item.faded { opacity: 0.38; }
+  .src { font-size: var(--src-size); color: var(--src-color); line-height: 1.45; }
+  .tgt { font-size: var(--tgt-size); color: var(--tgt-color); font-weight: 650; line-height: 1.35; margin-top: 2px; }
+  .only { font-size: var(--tgt-size); color: var(--tgt-color); font-weight: 650; line-height: 1.35; }
+  .interim { color: #9aa8b8; font-size: var(--src-size); font-style: italic; }
+  .meta { color: var(--muted); font-size: 12px; margin-bottom: 2px; }
+  #jumpBtn { position: absolute; right: 24px; bottom: 84px; display: none; }
+  #controls {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 10px 12px; background: rgba(0, 0, 0, 0.35);
+    border-top: 1px solid var(--line);
+  }
+  .bar-btn.primary { background: #1f4b86; }
+  .bar-btn.active { outline: 2px solid var(--accent); }
+  #vol, #seek { width: 110px; }
+  #volLabel, #fileTime { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  #meterWrap { flex: 1; min-width: 120px; height: 10px; background: #243246; border-radius: 99px; overflow: hidden; }
+  #meter { height: 100%; width: 0%; background: #3ddc84; }
+  #backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; z-index: 2; }
+  #backdrop.show { display: block; }
+  #sidebar {
+    position: fixed; top: 0; left: 0; bottom: 0; width: min(380px, 92vw);
+    background: var(--panel); border-right: 1px solid var(--line);
+    transform: translateX(-105%); transition: transform .18s ease;
+    z-index: 3; pointer-events: none;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  #sidebar.open { transform: none; pointer-events: auto; }
+  .side-scroll { flex: 1; overflow-y: auto; padding: 16px 16px 12px; }
+  .side-actions {
+    flex: none; display: flex; flex-direction: column; gap: 8px;
+    padding: 10px 16px 14px; border-top: 1px solid var(--line); background: #101b2c;
+  }
+  .side-actions .row-btns, .mode-switch { display: flex; gap: 8px; }
+  .side-actions .row-btns button, .mode-switch button { flex: 1; }
+  .file-tools { display: contents; }
+  body[data-mode="talk"] .file-tools { display: none; }
+  #saveState.dirty { color: #f0c674; }
+  #apiCheck.ok { color: #8ee0b0; }
+  #apiCheck.bad { color: #ffb4b4; }
+  .side-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .side-head h2 { margin: 0; }
+  input[type="color"] { height: 40px; padding: 4px; }
+  #sidebar h2 { font-size: 16px; margin: 0; }
+  .fold-list { margin-top: 12px; }
+  .fold { border-top: 1px solid var(--line); }
+  .fold-btn {
+    width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    text-align: left; background: transparent; border: 0; border-radius: 8px;
+    padding: 11px 4px; font-size: 15px;
+  }
+  .fold-btn:hover, .fold-btn[aria-expanded="true"] { background: #1a2c44; }
+  .fold-mark { color: var(--muted); font-size: 12px; }
+  .fold-body { padding: 2px 4px 12px; }
+  .fold-body h3 { font-size: 13px; color: var(--accent); margin: 10px 0 4px; font-weight: 650; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 8px 0 4px; }
+  input[type="text"], input[type="password"], input[type="number"], select, textarea {
+    width: 100%; background: #0e1a2b; border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px;
+  }
+  textarea { min-height: 72px; resize: vertical; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+  .hint { color: var(--muted); font-size: 12px; line-height: 1.45; }
+  #fileList, #scriptList { list-style: none; padding: 0; margin: 8px 0; }
+  #fileList li, #scriptList li { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 6px; font-size: 13px; }
+  #scriptList span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #toast {
+    position: fixed; left: 50%; bottom: 88px; transform: translateX(-50%);
+    background: #1b2838; border: 1px solid var(--line); padding: 8px 12px;
+    border-radius: 8px; display: none; max-width: 80vw;
+  }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div id="backdrop"></div>
+<aside id="sidebar" aria-label="설정">
+<div class="side-scroll">
+  <div class="side-head">
+    <h2>설정</h2>
+    <button id="closeSide" class="bar-btn" type="button">닫기</button>
+  </div>
+
+  <div class="fold-list">
+    <section class="fold" id="apiSection" data-fold="models">
+      <button class="fold-btn" type="button" aria-expanded="false" aria-controls="fold-models">
+        <span>1. 전사, 번역 모델</span><span class="fold-mark" aria-hidden="true">▸</span>
+      </button>
+      <div id="fold-models" class="fold-body" hidden>
+        <h3>전사</h3>
+        <label for="asrRoute">전사 제공자</label>
+        <select id="asrRoute">
+          <option value="gemini">Gemini 음성</option>
+          <option value="local">기기 내</option>
+          <option value="none">연결 안 함</option>
+        </select>
+        <div id="localAsrRow">
+          <label for="localAsr">기기 내 모델</label>
+          <select id="localAsr">
+            <option value="sensevoice">SenseVoice</option>
+            <option value="whisper">Whisper</option>
+          </select>
+        </div>
+        <div id="asrApiRow">
+          <label for="asrKey">전사 API 키</label>
+          <input id="asrKey" type="password" autocomplete="off" spellcheck="false" placeholder="번역 키와 따로 저장">
+          <label for="asrModel">전사 모델</label>
+          <select id="asrModel"></select>
+          <div id="asrNewModelRow" hidden>
+            <label for="asrNewModel">새 모델 ID</label>
+            <input id="asrNewModel" type="text" autocomplete="off" spellcheck="false" placeholder="직접 입력">
+            <button id="asrNewModelBtn" class="bar-btn" type="button">이 ID를 목록에 넣기</button>
+          </div>
+          <p class="hint">목록을 불러오지 못해도 이전에 넣은 모델 ID는 고를 수 있습니다. 새 모델 ID를 고르면 직접 넣을 수 있습니다.</p>
+          <button id="asrModelsBtn" class="bar-btn" type="button">전사 모델 목록</button>
+          <p id="asrApiCheck" class="hint"></p>
+        </div>
+        <p id="asrHint" class="hint"></p>
+        <h3>번역</h3>
+        <label for="trRoute">번역 제공자</label>
+        <select id="trRoute">
+          <option value="gemini">Gemini 텍스트</option>
+        </select>
+        <p class="hint">번역 칸은 전사 칸과 따로입니다. 확정된 글만 보내고, 음성은 이 칸으로 나가지 않습니다.</p>
+        <label for="trKey">번역 API 키</label>
+        <input id="trKey" type="password" autocomplete="off" spellcheck="false" placeholder="이 브라우저에만 저장">
+        <label for="trModel">번역 모델</label>
+        <select id="trModel"></select>
+        <div id="trNewModelRow" hidden>
+          <label for="trNewModel">새 모델 ID</label>
+          <input id="trNewModel" type="text" autocomplete="off" spellcheck="false" placeholder="직접 입력">
+          <button id="trNewModelBtn" class="bar-btn" type="button">이 ID를 목록에 넣기</button>
+        </div>
+        <p class="hint">목록을 불러오지 못해도 이전에 넣은 모델 ID는 고를 수 있습니다. 새 모델 ID를 고르면 직접 넣을 수 있습니다.</p>
+        <button id="trModelsBtn" class="bar-btn" type="button">번역 모델 목록</button>
+        <button id="checkKeyBtn" class="bar-btn" type="button">번역 키 확인</button>
+        <p id="apiCheck" class="hint"></p>
+        <label for="glossary">용어집</label>
+        <textarea id="glossary" placeholder="웨이퍼=wafer | 웨이파, 웨퍼"></textarea>
+        <p class="hint">한 줄에 원어=선호 번역입니다. 별칭은 막대 뒤에 쉼표로 적습니다. 지난 회의 전사문이 없으면 비워 둡니다. 번역 요청과 외부 전사에는 이 표와, 이번 회의에서 방금 확정된 원문 최대 3개를 붙입니다. 기기 내 모델은 별칭을 원어 표기로만 고칩니다.</p>
+      </div>
+    </section>
+    <section class="fold" data-fold="lang">
+      <button class="fold-btn" type="button" aria-expanded="false" aria-controls="fold-lang">
+        <span>2. 언어 선택</span><span class="fold-mark" aria-hidden="true">▸</span>
+      </button>
+      <div id="fold-lang" class="fold-body" hidden>
+        <div class="row">
+          <div>
+            <label for="lang1">언어1</label>
+            <select id="lang1"></select>
+          </div>
+          <div>
+            <label for="lang2">언어2</label>
+            <select id="lang2"></select>
+          </div>
+        </div>
+        <label for="displayMode">표시 모드</label>
+        <select id="displayMode">
+          <option value="both">원문 + 번역</option>
+          <option value="lang1">언어1만</option>
+          <option value="lang2">언어2만</option>
+        </select>
+        <p class="hint">언어1만: 언어1로 말한 것은 원문, 다른 언어는 언어1 번역만 보여 줍니다.</p>
+      </div>
+    </section>
+    <section class="fold" data-fold="segment">
+      <button class="fold-btn" type="button" aria-expanded="false" aria-controls="fold-segment">
+        <span>3. 분절 길이</span><span class="fold-mark" aria-hidden="true">▸</span>
+      </button>
+      <div id="fold-segment" class="fold-body" hidden>
+        <label for="segment">분절 길이 <span id="segmentVal"></span></label>
+        <input id="segment" type="range" min="1" max="5" step="1">
+        <p class="hint">1은 무음 0.4초·최대 4초, 5는 무음 1.2초·최대 15초입니다. Gemini 음성은 말하는 동안에도 그 간격으로 글을 받아 보여 줍니다. 받아 올 때마다 한도가 줄어듭니다.</p>
+      </div>
+    </section>
+    <section class="fold" data-fold="screen">
+      <button class="fold-btn" type="button" aria-expanded="false" aria-controls="fold-screen">
+        <span>4. 화면 설정</span><span class="fold-mark" aria-hidden="true">▸</span>
+      </button>
+      <div id="fold-screen" class="fold-body" hidden>
+        <label for="bgColor">배경색</label>
+        <input id="bgColor" type="color">
+        <label for="bgImage">배경 이미지</label>
+        <input id="bgImage" type="file" accept="image/*">
+        <button id="clearBg" class="bar-btn" type="button">배경 이미지 지우기</button>
+        <div class="row">
+          <div>
+            <label for="srcSize">원문 크기 <span id="srcSizeVal"></span></label>
+            <input id="srcSize" type="range" min="14" max="40" step="1">
+          </div>
+          <div>
+            <label for="tgtSize">번역 크기 <span id="tgtSizeVal"></span></label>
+            <input id="tgtSize" type="range" min="18" max="72" step="1">
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label for="srcColor">원문 색</label>
+            <input id="srcColor" type="color">
+          </div>
+          <div>
+            <label for="tgtColor">번역 색</label>
+            <input id="tgtColor" type="color">
+          </div>
+        </div>
+        <label for="maxItems">화면에서 선명하게 둘 최근 항목 수 (0이면 제한 없음)</label>
+        <input id="maxItems" type="number" min="0" max="500" step="1">
+      </div>
+    </section>
+    <section class="fold" data-fold="script">
+      <button class="fold-btn" type="button" aria-expanded="false" aria-controls="fold-script">
+        <span>5. 화면 스크립트 초기화</span><span class="fold-mark" aria-hidden="true">▸</span>
+      </button>
+      <div id="fold-script" class="fold-body" hidden>
+        <p class="hint">화면에 떠 있는 줄을 지웁니다. 한 줄만 지우거나, 화면 스크립트를 한 번에 비울 수 있습니다. 듣는 중인 줄도 지웁니다.</p>
+        <button id="clearBtn" class="bar-btn" type="button">화면 스크립트 지우기</button>
+        <ul id="scriptList"></ul>
+        <button id="seedBtn" class="bar-btn" type="button">예시 기록 넣기</button>
+        <button id="newSessionBtn" class="bar-btn" type="button">새 세션</button>
+      </div>
+    </section>
+    <section class="fold" data-fold="detail">
+      <button class="fold-btn" type="button" aria-expanded="false" aria-controls="fold-detail">
+        <span>6. 세부 설정</span><span class="fold-mark" aria-hidden="true">▸</span>
+      </button>
+      <div id="fold-detail" class="fold-body" hidden>
+        <label for="mdFormat">저장 형식</label>
+        <select id="mdFormat">
+          <option value="table">표</option>
+          <option value="paragraph">문단</option>
+        </select>
+        <div class="file-tools">
+          <h3>테스트 오디오</h3>
+          <label for="fileInput">오디오 파일 (.m4a, .mp3)</label>
+          <input id="fileInput" type="file" accept=".m4a,.mp3,audio/mpeg,audio/mp4,audio/*" multiple>
+          <ul id="fileList"></ul>
+          <label for="playbackRate">재생 속도</label>
+          <select id="playbackRate">
+            <option value="1">1×</option>
+            <option value="1.5">1.5×</option>
+            <option value="2">2×</option>
+          </select>
+        </div>
+        <h3>사용 모드</h3>
+        <div class="mode-switch" role="group" aria-label="사용 모드">
+          <button id="modeTest" class="bar-btn" type="button">Test모드</button>
+          <button id="modeTalk" class="bar-btn" type="button">대화모드</button>
+        </div>
+        <p id="modeHint" class="hint">Test모드는 음성 파일로 확인합니다.</p>
+      </div>
+    </section>
+  </div>
+</div>
+  <div class="side-actions">
+    <p id="saveState" class="hint">저장된 설정입니다.</p>
+    <div class="row-btns">
+      <button id="defaultBtn" class="bar-btn" type="button">기본값</button>
+      <button id="saveSettingsBtn" class="bar-btn primary" type="button">저장</button>
+    </div>
+  </div>
+</aside>
+
+<div id="app">
+  <header id="status">
+    <button id="menuBtn" type="button" aria-label="설정 열기">☰</button>
+    <button id="apiBtn" class="bar-btn" type="button">API 설정</button>
+    <span id="dot" aria-hidden="true"></span>
+    <span id="statusText">대기 · SenseVoice 대기</span>
+  </header>
+  <main id="transcript" aria-live="polite"></main>
+  <button id="jumpBtn" type="button">최신으로</button>
+  <footer id="controls">
+    <button id="micBtn" class="bar-btn primary" type="button">마이크</button>
+    <span class="file-tools">
+      <button id="playBtn" class="bar-btn" type="button">파일 열기</button>
+      <button id="playStartBtn" class="bar-btn" type="button">재생</button>
+      <button id="pauseBtn" class="bar-btn" type="button">일시정지</button>
+      <span id="fileTime">00:00 / 00:00</span>
+      <label id="seekLabel" for="seek">위치</label>
+      <input id="seek" type="range" min="0" max="1000" value="0" aria-label="재생 위치">
+    </span>
+    <span id="clock">00:00:00</span>
+    <div id="meterWrap" title="입력 음량"><div id="meter"></div></div>
+    <label id="volLabel" for="vol">음량</label>
+    <input id="vol" type="range" min="0" max="100" value="100" aria-label="음량">
+    <button id="muteBtn" class="bar-btn" type="button">음소거</button>
+    <button id="saveBtn" class="bar-btn" type="button">Script 저장</button>
+    <button id="saveAsBtn" class="bar-btn" type="button">새이름저장</button>
+  </footer>
+</div>
+<div id="toast" role="status"></div>
+<audio id="player" preload="auto"></audio>
+
+<script>
+(function () {
+  "use strict";
+
+  var LANGS = [
+    ["ko", "한국어"], ["en", "영어"], ["ja", "일본어"], ["zh", "중국어"],
+    ["es", "스페인어"], ["fr", "프랑스어"], ["de", "독일어"], ["vi", "베트남어"],
+    ["th", "태국어"], ["id", "인도네시아어"], ["pt", "포르투갈어"], ["ru", "러시아어"]
+  ];
+  var SETTINGS_KEY = "rtb.settings.v1";
+  var RECORDS_KEY = "rtb.records.v1";
+  var defaults = {
+    lang1: "ko", lang2: "en", displayMode: "both",
+    bgColor: "#0e1a2b", bgImage: "",
+    srcSize: 20, tgtSize: 36, srcColor: "#d5dbe3", tgtColor: "#ffffff",
+    maxItems: 0, segment: 3,
+    asrRoute: "gemini", localAsr: "sensevoice",
+    asrKey: "", asrModel: "", asrModelIds: [],
+    trRoute: "gemini", trKey: "", trModel: "", trModelIds: [],
+    glossary: "",
+    playbackRate: "1", mdFormat: "table", appMode: "test"
+  };
+  var WHISPER_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2";
+  var WHISPER_MODEL = "onnx-community/whisper-tiny";
+  var WHISPER_NAME = {
+    ko: "korean", en: "english", ja: "japanese", zh: "chinese",
+    es: "spanish", fr: "french", de: "german", vi: "vietnamese",
+    th: "thai", id: "indonesian", pt: "portuguese", ru: "russian"
+  };
+  var SENSE_OK = { ko: 1, en: 1, ja: 1, zh: 1 };
+
+  var settings = loadSettings();
+  var records = loadRecords();
+  var interim = "";
+  var follow = true;
+  var files = [];
+  var fileIndex = 0;
+  var micStream = null;
+  var micStarting = false;
+  var micGen = 0;
+  var micOpenedAt = 0;
+  var heardFrames = 0;
+  var lastLevel = 0;
+  var micFloor = 0.008;
+  var micCalib = 0;
+  var micRun = 0;
+  var micPre = [];
+  var micPreCount = 0;
+  var audioCtx = null;
+  var analyser = null;
+  var meterBuf = null;
+  var mediaNode = null;
+  var micNode = null;
+  var silentGain = null;
+  var savedVolume = 1;
+  var muted = false;
+  var seeking = false;
+  var sessionStart = 0;
+  var sessionAccum = 0;
+  var timerOn = false;
+  var timerId = 0;
+  var toastTimer = 0;
+  var ignoreScroll = false;
+  var demo = records.length === 0;
+  var savedJson = "";
+  var apiNote = "";
+  var keyCheckSeq = 0;
+  var asrNote = "SenseVoice 대기";
+  var asrReady = false;
+  var asrPromise = null;
+  var asrProc = null;
+  var asrSink = null;
+  var vad = null;
+  var asrBuffer = null;
+  var senseByLang = {};
+  var asrHeard = false;
+  var tfApi = null;
+  var whisperPipe = null;
+  var whisperPromise = null;
+  var segQueue = [];
+  var segBusy = false;
+  var uttParts = [];
+  var uttCount = 0;
+  var uttNew = 0;
+  var uttLang = "";
+  var partialGen = 0;
+  var asrEpoch = 0;
+  var pendingPcm = [];
+  var partialBusy = false;
+  var partialAgain = false;
+  var dropUtt = false;
+  var uttMic = false;
+  var ASR_BASE = "https://huggingface.co/jpssff/sherpa-onnx-sense-voice/resolve/main/";
+
+  var el = {
+    sidebar: document.getElementById("sidebar"),
+    backdrop: document.getElementById("backdrop"),
+    transcript: document.getElementById("transcript"),
+    jump: document.getElementById("jumpBtn"),
+    status: document.getElementById("statusText"),
+    dot: document.getElementById("dot"),
+    clock: document.getElementById("clock"),
+    meter: document.getElementById("meter"),
+    player: document.getElementById("player"),
+    fileList: document.getElementById("fileList"),
+    toast: document.getElementById("toast")
+  };
+
+  function loadSettings() {
+    try {
+      var raw = localStorage.getItem(SETTINGS_KEY);
+      if (!raw) return Object.assign({}, defaults);
+      var parsed = JSON.parse(raw);
+      return migrateSettings(Object.assign({}, defaults, parsed));
+    } catch (e) {
+      return Object.assign({}, defaults);
+    }
+  }
+
+  function saveSettings() {
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+      return true;
+    } catch (e) {
+      toast("설정을 저장하지 못했습니다. 배경 이미지가 너무 크면 지워 보세요.");
+      return false;
+    }
+  }
+
+  function migrateSettings(s) {
+    if (!s.asrRoute) {
+      if (s.asrEngine === "gemini") s.asrRoute = "gemini";
+      else if (s.asrEngine === "none") s.asrRoute = "none";
+      else s.asrRoute = "local";
+    }
+    if (s.asrRoute !== "local" && s.asrRoute !== "gemini" && s.asrRoute !== "none") s.asrRoute = "local";
+    if (s.localAsr !== "whisper") s.localAsr = "sensevoice";
+    if (s.trRoute !== "gemini") s.trRoute = "gemini";
+    if (!s.trKey && s.geminiKey) s.trKey = s.geminiKey;
+    if (!s.trModel && s.geminiModel) s.trModel = s.geminiModel;
+    if (s.asrRoute === "gemini") {
+      if (!s.asrKey && s.geminiKey) s.asrKey = s.geminiKey;
+      if (!s.asrModel && s.geminiModel) s.asrModel = s.geminiModel;
+    }
+    s.trModelIds = Array.isArray(s.trModelIds) ? s.trModelIds.slice() : [];
+    s.asrModelIds = Array.isArray(s.asrModelIds) ? s.asrModelIds.slice() : [];
+    rememberModelId(s.trModelIds, s.trModel);
+    rememberModelId(s.trModelIds, s.geminiModel);
+    rememberModelId(s.asrModelIds, s.asrModel);
+    rememberModelId(s.asrModelIds, s.geminiModel);
+    if (s.trModel === "__new__") s.trModel = "";
+    if (s.asrModel === "__new__") s.asrModel = "";
+    return s;
+  }
+
+  function rememberModelId(list, raw) {
+    var id = modelIdOf(raw);
+    if (!id || id === "__new__" || !/^[A-Za-z0-9._-]+$/.test(id)) return;
+    if (list.indexOf(id) === -1) list.push(id);
+  }
+
+  function modelChoices(which, fetched) {
+    var ids = [];
+    function add(raw) {
+      var id = modelIdOf(raw);
+      if (!id || id === "__new__" || !/^[A-Za-z0-9._-]+$/.test(id)) return;
+      if (ids.indexOf(id) !== -1) return;
+      ids.push(id);
+    }
+    (fetched || []).forEach(add);
+    (settings.trModelIds || []).forEach(add);
+    (settings.asrModelIds || []).forEach(add);
+    add(settings.trModel);
+    add(settings.asrModel);
+    add(settings.geminiModel);
+    ids.sort();
+    return ids;
+  }
+
+  function loadRecords() {
+    try {
+      var raw = localStorage.getItem(RECORDS_KEY);
+      var parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveRecords() {
+    try {
+      localStorage.setItem(RECORDS_KEY, JSON.stringify(records));
+    } catch (e) {
+      toast("기록을 저장하지 못했습니다.");
+    }
+  }
+
+  function toast(message) {
+    el.toast.textContent = message;
+    el.toast.style.display = "block";
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.toast.style.display = "none"; }, 3200);
+  }
+
+  function langName(code) {
+    for (var i = 0; i < LANGS.length; i++) {
+      if (LANGS[i][0] === code) return LANGS[i][1];
+    }
+    return code;
+  }
+
+  function fillLangSelect(node, value) {
+    node.innerHTML = "";
+    LANGS.forEach(function (pair) {
+      var opt = document.createElement("option");
+      opt.value = pair[0];
+      opt.textContent = pair[1];
+      node.appendChild(opt);
+    });
+    node.value = value;
+  }
+
+  function bindSettings() {
+    fillLangSelect(document.getElementById("lang1"), settings.lang1);
+    fillLangSelect(document.getElementById("lang2"), settings.lang2);
+    var ids = ["displayMode", "asrRoute", "localAsr", "trRoute", "playbackRate", "mdFormat"];
+    ids.forEach(function (id) {
+      var node = document.getElementById(id);
+      if (node && settings[id]) node.value = settings[id];
+    });
+    document.getElementById("bgColor").value = settings.bgColor;
+    document.getElementById("srcSize").value = settings.srcSize;
+    document.getElementById("tgtSize").value = settings.tgtSize;
+    document.getElementById("srcColor").value = settings.srcColor;
+    document.getElementById("tgtColor").value = settings.tgtColor;
+    document.getElementById("maxItems").value = settings.maxItems;
+    document.getElementById("segment").value = settings.segment;
+    document.getElementById("trKey").value = settings.trKey || "";
+    document.getElementById("asrKey").value = settings.asrKey || "";
+    document.getElementById("glossary").value = settings.glossary || "";
+    paintModelSelect("tr");
+    paintModelSelect("asr");
+    document.getElementById("srcSizeVal").textContent = settings.srcSize + "px";
+    document.getElementById("tgtSizeVal").textContent = settings.tgtSize + "px";
+    document.getElementById("segmentVal").textContent = String(settings.segment);
+    syncEnginePanels();
+  }
+
+  function applyTheme() {
+    var root = document.documentElement.style;
+    root.setProperty("--bg", settings.bgColor);
+    root.setProperty("--src-size", settings.srcSize + "px");
+    root.setProperty("--tgt-size", settings.tgtSize + "px");
+    root.setProperty("--src-color", settings.srcColor);
+    root.setProperty("--tgt-color", settings.tgtColor);
+    if (settings.bgImage) {
+      document.body.classList.add("has-image");
+      document.body.style.backgroundImage = "url(\"" + settings.bgImage + "\")";
+    } else {
+      document.body.classList.remove("has-image");
+      document.body.style.backgroundImage = "";
+    }
+    if (el.player) el.player.playbackRate = Number(settings.playbackRate) || 1;
+    applyMode();
+  }
+
+  function applyMode() {
+    var talk = settings.appMode === "talk";
+    document.body.dataset.mode = talk ? "talk" : "test";
+    document.getElementById("modeTest").classList.toggle("active", !talk);
+    document.getElementById("modeTalk").classList.toggle("active", talk);
+    document.getElementById("modeHint").textContent = talk
+      ? "대화모드입니다. 파일 열기, 재생, 일시정지, 위치 이동은 숨깁니다."
+      : "Test모드입니다. 음성 파일로 재생과 위치를 확인합니다.";
+    if (talk && el.player && !el.player.paused) el.player.pause();
+  }
+
+  function setAppMode(mode) {
+    settings.appMode = mode === "talk" ? "talk" : "test";
+    applyMode();
+    updateSaveState();
+  }
+
+  function readForm(id) {
+    var node = document.getElementById(id);
+    if (!node) return;
+    if (node.type === "range" || node.type === "number") settings[id] = Number(node.value);
+    else settings[id] = node.value;
+  }
+
+  function snapshotSettings() {
+    return JSON.stringify(settings);
+  }
+
+  function updateSaveState() {
+    var node = document.getElementById("saveState");
+    var dirty = snapshotSettings() !== savedJson;
+    node.textContent = dirty ? "저장하지 않은 변경이 있습니다." : "저장된 설정입니다.";
+    node.classList.toggle("dirty", dirty);
+  }
+
+  function markSaved() {
+    savedJson = snapshotSettings();
+    updateSaveState();
+  }
+
+  function readAllSettings() {
+    ["lang1", "lang2", "displayMode", "asrRoute", "localAsr", "trRoute", "playbackRate", "mdFormat",
+      "bgColor", "srcSize", "tgtSize", "srcColor", "tgtColor", "maxItems", "segment",
+      "trKey", "asrKey", "glossary"].forEach(readForm);
+    settings.trKey = String(settings.trKey || "").trim();
+    settings.asrKey = String(settings.asrKey || "").trim();
+    applyChosenModel("tr");
+    applyChosenModel("asr");
+    settings = migrateSettings(settings);
+    document.getElementById("trKey").value = settings.trKey;
+    document.getElementById("asrKey").value = settings.asrKey;
+  }
+
+  function defaultApiHint() {
+    var key = document.getElementById("trKey").value.trim();
+    var model = chosenModelId("tr");
+    if (key && model && model !== "__new__") {
+      return "번역 키와 고른 모델이 있습니다. 키 확인은 짧은 글만 보냅니다. 남기려면 저장을 누르세요.";
+    }
+    return "번역 키를 넣으면 그 키로 쓸 수 있는 글 생성 모델을 드롭다운에 띄웁니다. 고른 뒤 저장하세요.";
+  }
+
+  function showApiCheck(message, kind) {
+    var node = document.getElementById("apiCheck");
+    node.textContent = message;
+    node.className = "hint" + (kind ? " " + kind : "");
+  }
+
+  function clearKeyCheck() {
+    apiNote = "";
+    showApiCheck(defaultApiHint(), "");
+    refreshStatus();
+  }
+
+  function publicError(message, key) {
+    var text = String(message || "");
+    if (key && text.indexOf(key) !== -1) text = text.split(key).join("");
+    text = text.replace(/AIza[0-9A-Za-z_-]{20,}/g, "");
+    return text.replace(/\s+/g, " ").trim().slice(0, 180);
+  }
+
+  function geminiErrorText(status, body, key) {
+    var msg = publicError(body && body.error && body.error.message, key);
+    var low = msg.toLowerCase();
+    if (status === 400 && (low.indexOf("api key") !== -1 || low.indexOf("api_key") !== -1)) {
+      return "키가 거부됐습니다. 키를 다시 확인하세요.";
+    }
+    if (status === 401 || status === 403) return "키가 거부됐습니다. 유료 등급 키인지 확인하세요.";
+    if (status === 404 || low.indexOf("not found") !== -1) {
+      return "모델 ID를 찾지 못했습니다." + (msg ? " " + msg : "");
+    }
+    if (status === 429) return "할당량을 초과했습니다.";
+    return "확인 실패 (" + status + ")." + (msg ? " " + msg : "");
+  }
+
+  function modelIdOf(raw) {
+    var model = String(raw || "").trim();
+    if (model.indexOf("models/") === 0) model = model.slice(7);
+    return model;
+  }
+
+  async function checkGeminiKey() {
+    var key = document.getElementById("trKey").value.trim();
+    var model = chosenModelId("tr");
+    var btn = document.getElementById("checkKeyBtn");
+    if (!key || !model || model === "__new__") {
+      apiNote = "";
+      showApiCheck("번역 키를 넣고, 목록의 모델이나 새 모델 ID를 고르세요.", "bad");
+      refreshStatus();
+      return;
+    }
+    if (!/^[A-Za-z0-9._-]+$/.test(model)) {
+      apiNote = "";
+      showApiCheck("고른 모델 ID를 요청에 넣지 못했습니다.", "bad");
+      refreshStatus();
+      return;
+    }
+    var seq = ++keyCheckSeq;
+    btn.disabled = true;
+    showApiCheck("확인 중… 짧은 텍스트만 보냅니다.", "");
+    try {
+      var res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: "Reply with OK" }] }],
+          generationConfig: { maxOutputTokens: 8, temperature: 0 }
+        })
+      });
+      if (seq !== keyCheckSeq) return;
+      var body = null;
+      try { body = await res.json(); } catch (e) { body = null; }
+      if (!res.ok) {
+        apiNote = "키 확인 실패";
+        showApiCheck(geminiErrorText(res.status, body, key), "bad");
+        toast("Gemini 키 확인에 실패했습니다.");
+        refreshStatus();
+        return;
+      }
+      if (body && body.promptFeedback && body.promptFeedback.blockReason) {
+        apiNote = "키 확인 실패";
+        showApiCheck("키는 통과했으나 응답이 막혔습니다. 모델 ID를 확인하세요.", "bad");
+        toast("Gemini 응답이 막혔습니다.");
+        refreshStatus();
+        return;
+      }
+      apiNote = "키 확인됨";
+      showApiCheck("확인됨. 모델 " + model + "이 이 키를 받아들였습니다. 남기려면 저장을 누르세요.", "ok");
+      toast("Gemini 키와 모델 ID가 확인됐습니다.");
+      refreshStatus();
+    } catch (e) {
+      if (seq !== keyCheckSeq) return;
+      apiNote = "키 확인 실패";
+      showApiCheck("요청이 나가지 못했습니다. 네트워크를 확인하세요.", "bad");
+      toast("Gemini에 연결하지 못했습니다.");
+      refreshStatus();
+    } finally {
+      if (seq === keyCheckSeq) btn.disabled = false;
+    }
+  }
+
+  function commitSettings(message) {
+    readAllSettings();
+    paintModelSelect("tr");
+    paintModelSelect("asr");
+    applyTheme();
+    render();
+    if (saveSettings()) {
+      markSaved();
+      toast(message);
+    }
+  }
+
+  function onSettingInput(event) {
+    if (event.target.type === "file") return;
+    var id = event.target.id;
+    if (!id || !(id in defaults)) return;
+    if (id === "trModel" || id === "asrModel") {
+      if (event.target.value !== "__new__") {
+        readForm(id);
+        rememberModelId(id === "asrModel" ? settings.asrModelIds : settings.trModelIds, settings[id]);
+      }
+      if (id === "trModel") clearKeyCheck();
+      syncNewModelRow(id === "asrModel" ? "asr" : "tr");
+      updateSaveState();
+      return;
+    }
+    readForm(id);
+    if (id === "srcSize") document.getElementById("srcSizeVal").textContent = settings.srcSize + "px";
+    if (id === "tgtSize") document.getElementById("tgtSizeVal").textContent = settings.tgtSize + "px";
+    if (id === "segment") document.getElementById("segmentVal").textContent = String(settings.segment);
+    if (id === "bgImage") return;
+    if (id === "trKey") clearKeyCheck();
+    if (id === "asrKey") {
+      var asrNoteEl = document.getElementById("asrApiCheck");
+      asrNoteEl.textContent = "전사 키를 넣으면 모델 목록을 불러옵니다. 음성은 목록 조회에 넣지 않습니다.";
+      asrNoteEl.className = "hint";
+    }
+    if (id === "asrRoute" || id === "localAsr") {
+      resetAsrAudio();
+      syncEnginePanels();
+    }
+    applyTheme();
+    updateSaveState();
+    if (id === "displayMode" || id === "lang1" || id === "lang2" || id === "maxItems") render();
+  }
+
+  function clockText(ms) {
+    var s = Math.max(0, Math.floor(ms / 1000));
+    var hh = String(Math.floor(s / 3600)).padStart(2, "0");
+    var mm = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+    var ss = String(s % 60).padStart(2, "0");
+    return hh + ":" + mm + ":" + ss;
+  }
+
+  function sessionMs() {
+    if (!timerOn || !sessionStart) return sessionAccum;
+    return sessionAccum + (Date.now() - sessionStart);
+  }
+
+  function micLiveLabel() {
+    var track = micStream && micStream.getAudioTracks()[0];
+    var waited = Date.now() - micOpenedAt;
+    if (track && track.readyState !== "live") return "마이크가 끊겼습니다";
+    if (track && track.muted) return "마이크가 음소거되어 있습니다";
+    if (waited > 1200 && heardFrames < 1) return "마이크는 열렸지만 소리를 받지 못했습니다";
+    if (lastLevel < 8) return "마이크 켜짐 · 입력이 거의 없습니다 " + lastLevel + "%";
+    return "마이크 녹음 중 · 입력 " + lastLevel + "%";
+  }
+
+  function refreshStatus() {
+    var fileOn = !!(el.player && !el.player.paused);
+    var active = !!(micStream || micStarting || fileOn);
+    el.dot.classList.toggle("on", active);
+    var label = micStarting ? "마이크 연결 중" : (micStream ? micLiveLabel() : (fileOn ? "파일 재생 중" : "대기"));
+    el.status.textContent = label + " · " + asrNote + (apiNote ? " · " + apiNote : "");
+  }
+
+  function setMicUi(on) {
+    var btn = document.getElementById("micBtn");
+    btn.classList.toggle("active", !!on);
+    btn.textContent = on ? "마이크 끄기" : "마이크";
+  }
+
+  function setRunning(on) {
+    if (on && !timerOn) {
+      sessionStart = Date.now();
+      timerOn = true;
+    } else if (!on && timerOn) {
+      sessionAccum += Date.now() - sessionStart;
+      sessionStart = 0;
+      timerOn = false;
+    }
+    refreshStatus();
+  }
+
+  function tick() {
+    el.clock.textContent = clockText(sessionMs());
+    if (analyser && meterBuf && audioCtx && audioCtx.state === "running") {
+      analyser.getByteTimeDomainData(meterBuf);
+      var sum = 0;
+      var peak = 0;
+      for (var i = 0; i < meterBuf.length; i++) {
+        var v = Math.abs(meterBuf[i] - 128) / 128;
+        sum += v * v;
+        if (v > peak) peak = v;
+      }
+      var level = Math.max(Math.sqrt(sum / meterBuf.length) * 4, peak);
+      lastLevel = Math.min(100, Math.round(level * 100));
+      el.meter.style.width = lastLevel + "%";
+      if (micStream) refreshStatus();
+    } else if (!micStream && el.player.paused) {
+      el.meter.style.width = "0%";
+    }
+  }
+
+  function ensureGraph() {
+    if (!audioCtx) {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AC();
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.4;
+      meterBuf = new Uint8Array(analyser.fftSize);
+      silentGain = audioCtx.createGain();
+      silentGain.gain.value = 0.001;
+      analyser.connect(silentGain);
+      silentGain.connect(audioCtx.destination);
+    }
+    return audioCtx;
+  }
+
+  function disconnectMic() {
+    if (!micStream && !micStarting) {
+      setMicUi(false);
+      return;
+    }
+    var stream = micStream;
+    var node = micNode;
+    var keepEnergy = false;
+    if (segmentKind() === "energy" && extVoiced && uttMic && uttCount >= 8000) {
+      var kept = takeUtt();
+      keepEnergy = pcmLevel(kept) >= 8;
+    }
+    var keepSense = segmentKind() === "sense";
+    micStream = null;
+    micNode = null;
+    micStarting = false;
+    micGen++;
+    asrEpoch++;
+    heardFrames = 0;
+    resetMicGate();
+    if (node) {
+      try { node.disconnect(); } catch (e) {}
+    }
+    if (stream) {
+      stream.getTracks().forEach(function (t) {
+        try { t.stop(); } catch (e2) {}
+      });
+    }
+    setMicUi(false);
+    if (!el.player || el.player.paused) setRunning(false);
+    if (keepSense || keepEnergy) {
+      try { flushOpen(); } catch (e3) {}
+    } else {
+      dropUtt = true;
+      partialGen++;
+      interim = "";
+      extVoiced = false;
+      extSilence = 0;
+      resetUttBuffers();
+      render();
+    }
+  }
+
+  function wireFile() {
+    ensureGraph();
+    if (!mediaNode) {
+      mediaNode = audioCtx.createMediaElementSource(el.player);
+      mediaNode.connect(analyser);
+      mediaNode.connect(audioCtx.destination);
+      if (settings.asrRoute !== "none") connectAsr(mediaNode);
+    }
+  }
+
+  function chosenText(item) {
+    var mode = settings.displayMode;
+    if (mode === "both") return null;
+    var want = mode === "lang1" ? settings.lang1 : settings.lang2;
+    if (item.srcLang === want) return item.srcText;
+    return item.tgtText || "번역 전";
+  }
+
+  function render() {
+    var root = el.transcript;
+    var atBottom = root.scrollHeight - root.scrollTop - root.clientHeight < 80;
+    ignoreScroll = true;
+    root.innerHTML = "";
+    if (!records.length && !interim) {
+      var empty = document.createElement("p");
+      empty.className = "empty";
+      empty.textContent = "아직 기록이 없습니다. 마이크를 켜거나 파일을 재생하면 글이 여기에 붙습니다. 처음에는 전사 모델을 받습니다.";
+      root.appendChild(empty);
+      requestAnimationFrame(function () { ignoreScroll = false; });
+      renderScriptList();
+      return;
+    }
+    var max = Number(settings.maxItems) || 0;
+    var fadeBefore = max > 0 ? records.length - max : -1;
+    records.forEach(function (item, index) {
+      var box = document.createElement("article");
+      box.className = "item" + (index < fadeBefore ? " faded" : "");
+      var meta = document.createElement("div");
+      meta.className = "meta";
+      var eng = engineLabel(item.engine);
+      meta.textContent = clockText(item.startMs || 0) + " · " + langName(item.srcLang) + (eng ? " · " + eng : "");
+      box.appendChild(meta);
+      var single = chosenText(item);
+      if (single === null) {
+        var src = document.createElement("div");
+        src.className = "src";
+        src.textContent = item.srcText;
+        var tgt = document.createElement("div");
+        tgt.className = "tgt";
+        tgt.textContent = item.tgtText || "번역 전";
+        box.appendChild(src);
+        box.appendChild(tgt);
+      } else {
+        var only = document.createElement("div");
+        only.className = "only";
+        only.textContent = single;
+        box.appendChild(only);
+      }
+      root.appendChild(box);
+    });
+    if (interim) {
+      var live = document.createElement("article");
+      live.className = "item interim";
+      live.textContent = interim;
+      root.appendChild(live);
+    }
+    if (follow || atBottom) {
+      follow = true;
+      root.scrollTop = root.scrollHeight;
+      el.jump.style.display = "none";
+    }
+    requestAnimationFrame(function () {
+      if (follow) root.scrollTop = root.scrollHeight;
+      ignoreScroll = false;
+    });
+    renderScriptList();
+  }
+
+  function renderScriptList() {
+    var ul = document.getElementById("scriptList");
+    if (!ul) return;
+    ul.innerHTML = "";
+    if (!records.length && !interim) {
+      var empty = document.createElement("li");
+      empty.textContent = "화면에 스크립트가 없습니다.";
+      ul.appendChild(empty);
+      return;
+    }
+    records.forEach(function (item) {
+      var li = document.createElement("li");
+      var span = document.createElement("span");
+      span.textContent = (item.srcText || "").slice(0, 48);
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "bar-btn";
+      btn.textContent = "지우기";
+      btn.addEventListener("click", function () { deleteRecord(item.id); });
+      li.appendChild(span);
+      li.appendChild(btn);
+      ul.appendChild(li);
+    });
+    if (interim) {
+      var live = document.createElement("li");
+      var liveText = document.createElement("span");
+      liveText.textContent = "듣는 중: " + String(interim).slice(0, 48);
+      var liveBtn = document.createElement("button");
+      liveBtn.type = "button";
+      liveBtn.className = "bar-btn";
+      liveBtn.textContent = "지우기";
+      liveBtn.addEventListener("click", function () { cancelLive(); });
+      live.appendChild(liveText);
+      live.appendChild(liveBtn);
+      ul.appendChild(live);
+    }
+  }
+
+  function deleteRecord(id) {
+    records = records.filter(function (item) { return item.id !== id; });
+    if (!records.length) demo = false;
+    saveRecords();
+    follow = true;
+    render();
+  }
+
+  function cancelLive() {
+    dropUtt = !!(uttCount || extVoiced || asrHeard);
+    partialGen++;
+    interim = "";
+    resetUttBuffers();
+    render();
+  }
+
+  function seed() {
+    demo = true;
+    var base = sessionMs();
+    records = records.concat([
+      { id: Date.now(), startMs: base + 3000, srcLang: "en", srcText: "Hello", tgtLang: "ko", tgtText: "안녕하세요", status: "done" },
+      { id: Date.now() + 1, startMs: base + 5000, srcLang: "ko", srcText: "안녕", tgtLang: "en", tgtText: "Hi", status: "done" },
+      { id: Date.now() + 2, startMs: base + 8000, srcLang: "en", srcText: "So the next agenda is the budget.", tgtLang: "ko", tgtText: "다음 안건은 예산입니다.", status: "done" },
+      { id: Date.now() + 3, startMs: base + 14000, srcLang: "ko", srcText: "오늘 일정은 여기까지입니다.", tgtLang: "en", tgtText: "That is all for today's schedule.", status: "done" }
+    ]);
+    interim = "지금 인식 중인 문장입니다";
+    saveRecords();
+    follow = true;
+    render();
+  }
+
+  function clearRecords() {
+    records = [];
+    interim = "";
+    asrEpoch++;
+    dropUtt = !!(uttCount || extVoiced || asrHeard);
+    partialGen++;
+    resetUttBuffers();
+    demo = false;
+    saveRecords();
+    render();
+  }
+
+  function newSession() {
+    clearRecords();
+    sessionAccum = 0;
+    sessionStart = 0;
+    timerOn = false;
+    el.clock.textContent = "00:00:00";
+    toast("새 세션을 시작했습니다.");
+  }
+
+  function mdBody() {
+    var now = new Date();
+    var stamp = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0")
+      + " " + String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0");
+    var lines = [];
+    lines.push("# 회의 기록 " + stamp);
+    lines.push("- 언어: " + langName(settings.lang1) + " ↔ " + langName(settings.lang2));
+    lines.push("- 엔진: 전사 " + asrStatusLabel() + " / 번역 Gemini 텍스트");
+    lines.push("- 길이: " + clockText(sessionMs()));
+    if (demo) lines.push("- 표시: 예시 기록이 포함되어 있을 수 있습니다.");
+    lines.push("");
+    if (settings.mdFormat === "paragraph") {
+      records.forEach(function (item) {
+        lines.push("**" + clockText(item.startMs || 0) + "** (" + item.srcLang + ") " + item.srcText);
+        lines.push("> " + (item.tgtText || ""));
+        lines.push("");
+      });
+    } else {
+      lines.push("| 시각 | 언어 | 원문 | 번역 |");
+      lines.push("| --- | --- | --- | --- |");
+      records.forEach(function (item) {
+        lines.push("| " + clockText(item.startMs || 0) + " | " + item.srcLang + " | " + cell(item.srcText) + " | " + cell(item.tgtText) + " |");
+      });
+    }
+    return lines.join("\n");
+  }
+
+  function cell(text) {
+    return String(text || "").replace(/\|/g, "\\|").replace(/\n/g, " ");
+  }
+
+  function defaultMdName() {
+    var now = new Date();
+    return "회의기록_"
+      + String(now.getFullYear()).slice(2)
+      + String(now.getMonth() + 1).padStart(2, "0")
+      + String(now.getDate()).padStart(2, "0") + "_"
+      + String(now.getHours()).padStart(2, "0")
+      + String(now.getMinutes()).padStart(2, "0") + ".md";
+  }
+
+  function downloadMd(name) {
+    var blob = new Blob([mdBody()], { type: "text/markdown;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  function saveMd() {
+    downloadMd(defaultMdName());
+  }
+
+  function saveMdAs() {
+    var suggested = defaultMdName();
+    var typed = window.prompt("저장할 파일 이름", suggested);
+    if (typed === null) return;
+    typed = String(typed).trim();
+    if (!typed) {
+      toast("파일 이름이 비어 있습니다.");
+      return;
+    }
+    typed = typed.replace(/[\\/:*?"<>|]/g, "_");
+    if (!/\.md$/i.test(typed)) typed += ".md";
+    downloadMd(typed);
+  }
+
+  function renderFiles() {
+    el.fileList.innerHTML = "";
+    files.forEach(function (entry, index) {
+      var li = document.createElement("li");
+      var name = document.createElement("span");
+      name.textContent = entry.file.name;
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "bar-btn";
+      btn.textContent = index === fileIndex ? "선택됨" : "선택";
+      btn.addEventListener("click", function () {
+        fileIndex = index;
+        renderFiles();
+      });
+      li.appendChild(name);
+      li.appendChild(btn);
+      el.fileList.appendChild(li);
+    });
+  }
+
+  function micErrorText(e) {
+    var name = e && e.name ? e.name : "";
+    if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+      return "마이크가 막혀 있습니다. 주소창 왼쪽 아이콘에서 마이크를 허용한 뒤 다시 누르세요.";
+    }
+    if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+      return "이 PC에서 마이크 장치를 찾지 못했습니다.";
+    }
+    if (name === "NotReadableError" || name === "TrackStartError") {
+      return "마이크를 다른 프로그램이 사용 중입니다.";
+    }
+    if (name === "SecurityError") {
+      return "이 페이지 주소에서는 마이크가 막혀 있습니다. Chrome으로 파일을 열고 마이크를 허용하세요.";
+    }
+    return "마이크를 열지 못했습니다." + (name ? " (" + name + ")" : "");
+  }
+
+  function loadScript(url) {
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement("script");
+      s.src = url;
+      s.async = false;
+      s.onload = function () { resolve(); };
+      s.onerror = function () { reject(new Error("script")); };
+      document.body.appendChild(s);
+    });
+  }
+
+  function engineLabel(name) {
+    if (name === "sensevoice") return "SenseVoice";
+    if (name === "whisper") return "Whisper";
+    if (name === "gemini") return "Gemini 음성";
+    return "";
+  }
+
+  function asrStatusLabel() {
+    if (settings.asrRoute === "none") return "연결 안 함";
+    if (settings.asrRoute === "gemini") return "Gemini 음성";
+    if (settings.localAsr === "whisper") return "기기 내 Whisper";
+    return "기기 내 SenseVoice";
+  }
+
+  var trFetchedModels = [];
+  var asrFetchedModels = [];
+
+  function applyChosenModel(which) {
+    var key = which === "asr" ? "asrModel" : "trModel";
+    var list = which === "asr" ? settings.asrModelIds : settings.trModelIds;
+    var sel = document.getElementById(key);
+    var typed = document.getElementById(which === "asr" ? "asrNewModel" : "trNewModel");
+    var prev = settings[key] === "__new__" ? "" : (settings[key] || "");
+    if (!sel) return;
+    if (sel.value === "__new__") {
+      var id = modelIdOf(typed && typed.value);
+      if (id && /^[A-Za-z0-9._-]+$/.test(id)) {
+        rememberModelId(list, id);
+        settings[key] = id;
+        return;
+      }
+      settings[key] = prev;
+      return;
+    }
+    var picked = modelIdOf(sel.value);
+    if (picked) rememberModelId(list, picked);
+    settings[key] = picked;
+  }
+
+  function chosenModelId(which) {
+    var sel = document.getElementById(which === "asr" ? "asrModel" : "trModel");
+    var typed = document.getElementById(which === "asr" ? "asrNewModel" : "trNewModel");
+    if (!sel) return "";
+    if (sel.value === "__new__") return modelIdOf(typed && typed.value);
+    return modelIdOf(sel.value);
+  }
+
+  function syncNewModelRow(which) {
+    var sel = document.getElementById(which === "asr" ? "asrModel" : "trModel");
+    var row = document.getElementById(which === "asr" ? "asrNewModelRow" : "trNewModelRow");
+    if (row && sel) row.hidden = sel.value !== "__new__";
+  }
+
+  function paintModelSelect(which) {
+    var sel = document.getElementById(which === "asr" ? "asrModel" : "trModel");
+    var selected = which === "asr" ? settings.asrModel : settings.trModel;
+    var fetched = which === "asr" ? asrFetchedModels : trFetchedModels;
+    fillModelSelect(sel, modelChoices(which, fetched), selected);
+    syncNewModelRow(which);
+  }
+
+  function addTypedModel(which) {
+    var id = chosenModelId(which);
+    var note = document.getElementById(which === "asr" ? "asrApiCheck" : "apiCheck");
+    if (!id || !/^[A-Za-z0-9._-]+$/.test(id)) {
+      if (note) {
+        note.textContent = "모델 ID는 영문, 숫자, 점, 밑줄, 하이픈만 넣습니다.";
+        note.className = "hint bad";
+      }
+      return;
+    }
+    var list = which === "asr" ? settings.asrModelIds : settings.trModelIds;
+    rememberModelId(list, id);
+    settings[which === "asr" ? "asrModel" : "trModel"] = id;
+    document.getElementById(which === "asr" ? "asrNewModel" : "trNewModel").value = "";
+    paintModelSelect(which);
+    if (note) {
+      note.textContent = "모델 ID를 목록에 넣었습니다. 남기려면 저장을 누르세요.";
+      note.className = "hint ok";
+    }
+    updateSaveState();
+  }
+
+  function fillModelSelect(select, ids, selected) {
+    select.innerHTML = "";
+    var blank = document.createElement("option");
+    blank.value = "";
+    blank.textContent = ids.length ? "모델을 고르세요" : "저장된 모델이 없습니다";
+    select.appendChild(blank);
+    ids.forEach(function (id) {
+      var opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = id;
+      select.appendChild(opt);
+    });
+    var neu = document.createElement("option");
+    neu.value = "__new__";
+    neu.textContent = "새 모델 ID";
+    select.appendChild(neu);
+    select.value = ids.indexOf(selected) !== -1 ? selected : "";
+  }
+
+  function textModelId(model) {
+    var id = modelIdOf(model && (model.name || model.baseModelId || ""));
+    if (!id || !/^[A-Za-z0-9._-]+$/.test(id)) return "";
+    if (/embedding|imagen|veo|tts|lyria|aqa/i.test(id)) return "";
+    var methods = model.supportedGenerationMethods || model.supportedActions || [];
+    for (var i = 0; i < methods.length; i++) {
+      if (methods[i] === "generateContent") return id;
+    }
+    return "";
+  }
+
+  async function fetchGenerateModels(key) {
+    var out = [];
+    var seen = {};
+    var token = "";
+    for (var page = 0; page < 5; page++) {
+      var url = "https://generativelanguage.googleapis.com/v1beta/models?pageSize=100";
+      if (token) url += "&pageToken=" + encodeURIComponent(token);
+      var res = await fetch(url, { headers: { "x-goog-api-key": key } });
+      var body = null;
+      try { body = await res.json(); } catch (e) { body = null; }
+      if (!res.ok) {
+        var err = new Error("list");
+        err.status = res.status;
+        err.body = body;
+        throw err;
+      }
+      (body && body.models || []).forEach(function (model) {
+        var id = textModelId(model);
+        if (!id || seen[id]) return;
+        seen[id] = 1;
+        out.push(id);
+      });
+      token = body && body.nextPageToken || "";
+      if (!token) break;
+    }
+    out.sort();
+    return out;
+  }
+
+  async function loadModelList(which) {
+    var keyId = which === "asr" ? "asrKey" : "trKey";
+    var selId = which === "asr" ? "asrModel" : "trModel";
+    var noteId = which === "asr" ? "asrApiCheck" : "apiCheck";
+    var btnId = which === "asr" ? "asrModelsBtn" : "trModelsBtn";
+    var key = document.getElementById(keyId).value.trim();
+    var note = document.getElementById(noteId);
+    var btn = document.getElementById(btnId);
+    if (!key) {
+      note.textContent = "키를 먼저 넣으세요. 키는 목록 조회 헤더에만 씁니다.";
+      note.className = "hint bad";
+      return;
+    }
+    btn.disabled = true;
+    note.textContent = "모델 목록을 불러오는 중";
+    note.className = "hint";
+    try {
+      var ids = await fetchGenerateModels(key);
+      if (which === "asr") asrFetchedModels = ids;
+      else trFetchedModels = ids;
+      var selected = chosenModelId(which) || (which === "asr" ? settings.asrModel : settings.trModel);
+      fillModelSelect(document.getElementById(selId), modelChoices(which, ids), selected);
+      syncNewModelRow(which);
+      note.textContent = "글 생성 모델 " + ids.length + "개. 이전 입력과 새 모델 ID도 목록에 있습니다.";
+      note.className = "hint ok";
+      updateSaveState();
+    } catch (e) {
+      var status = e && e.status ? e.status : 0;
+      var why = status ? geminiErrorText(status, e.body, key) : "모델 목록 요청이 나가지 못했습니다.";
+      var selectedFail = chosenModelId(which) || (which === "asr" ? settings.asrModel : settings.trModel);
+      fillModelSelect(document.getElementById(selId), modelChoices(which, which === "asr" ? asrFetchedModels : trFetchedModels), selectedFail);
+      syncNewModelRow(which);
+      note.textContent = why + " 이전에 넣은 모델 ID는 그대로 고를 수 있고, 새 모델 ID로 직접 넣을 수 있습니다.";
+      note.className = "hint bad";
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function parseGlossary(raw) {
+    var rows = [];
+    String(raw || "").split(/\n/).forEach(function (line) {
+      line = line.trim();
+      if (!line || line.charAt(0) === "#") return;
+      var aliasPart = "";
+      var main = line;
+      var bar = line.indexOf("|");
+      if (bar !== -1) {
+        main = line.slice(0, bar).trim();
+        aliasPart = line.slice(bar + 1).trim();
+      }
+      var eq = main.indexOf("=");
+      if (eq <= 0) return;
+      var source = main.slice(0, eq).trim();
+      var target = main.slice(eq + 1).trim();
+      if (!source || !target) return;
+      var aliases = [];
+      if (aliasPart) {
+        aliasPart.split(",").forEach(function (part) {
+          var alias = part.trim();
+          if (alias && alias !== source) aliases.push(alias);
+        });
+      }
+      rows.push({ source: source, target: target, aliases: aliases });
+    });
+    return rows;
+  }
+
+  function glossarySource() {
+    var node = document.getElementById("glossary");
+    return node ? node.value : (settings.glossary || "");
+  }
+
+  function glossaryBlock() {
+    var rows = parseGlossary(glossarySource());
+    if (!rows.length) return "용어집:\n(없음)";
+    return "용어집 (원어=선호 번역):\n" + rows.map(function (row) {
+      var line = row.source + "=" + row.target;
+      if (row.aliases.length) line += " | " + row.aliases.join(", ");
+      return line;
+    }).join("\n");
+  }
+
+  function recentSourceBlock(skipId) {
+    var lines = [];
+    records.forEach(function (item) {
+      if (!item || item.id === skipId || !item.srcText) return;
+      lines.push(item.srcLang + ": " + String(item.srcText).slice(0, 240));
+    });
+    var last = lines.slice(-3);
+    if (!last.length) return "이번 회의에서 방금 확정된 원문: (없음)";
+    return "이번 회의에서 방금 확정된 원문 " + last.length + "개. 지난 회의 전문이 아니다. 맥락으로만 보고, 이 줄들은 다시 번역하거나 받아 적지 마라.\n" + last.join("\n");
+  }
+
+  function escapeReg(text) {
+    return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function correctSpelling(text) {
+    var reps = [];
+    parseGlossary(glossarySource()).forEach(function (row) {
+      row.aliases.forEach(function (alias) {
+        reps.push([alias, row.source]);
+      });
+    });
+    reps.sort(function (a, b) { return b[0].length - a[0].length; });
+    var out = String(text || "");
+    reps.forEach(function (pair) {
+      if (/[A-Za-z]/.test(pair[0]) && !/[\uac00-\ud7a3]/.test(pair[0])) {
+        out = out.replace(new RegExp("\\b" + escapeReg(pair[0]) + "\\b", "gi"), pair[1]);
+      } else {
+        out = out.split(pair[0]).join(pair[1]);
+      }
+    });
+    return out;
+  }
+
+  function repeatedTake(text) {
+    var raw = String(text || "").replace(/\s+/g, " ").trim();
+    if (!raw) return "";
+    var parts = raw.split(" ");
+    if (parts.length >= 3) {
+      var max = Math.min(8, Math.floor(parts.length / 3));
+      var size = 1;
+      for (size = 1; size <= max; size++) {
+        var unit = parts.slice(0, size).join(" ");
+        var count = 1;
+        var i = size;
+        while (i + size <= parts.length && parts.slice(i, i + size).join(" ") === unit) {
+          count++;
+          i += size;
+        }
+        if (count >= 3 && i >= Math.floor(parts.length * 0.75)) return "";
+      }
+    }
+    var compact = raw.replace(/\s/g, "");
+    if (compact.length >= 6) {
+      var n = 1;
+      for (n = 1; n <= Math.floor(compact.length / 3); n++) {
+        var piece = compact.slice(0, n);
+        var count2 = 0;
+        var pos = 0;
+        while (compact.slice(pos, pos + n) === piece) {
+          count2++;
+          pos += n;
+        }
+        if (count2 >= 3 && pos >= Math.floor(compact.length * 0.75)) return "";
+      }
+    }
+    return raw;
+  }
+
+  function downsample(samples, fromRate) {
+    if (fromRate === 16000) return samples;
+    var ratio = fromRate / 16000;
+    var n = Math.max(1, Math.round(samples.length / ratio));
+    var out = new Float32Array(n);
+    var offset = 0;
+    for (var o = 0; o < n; o++) {
+      var next = Math.round((o + 1) * ratio);
+      var acc = 0;
+      var count = 0;
+      for (var i = offset; i < next && i < samples.length; i++) {
+        acc += samples[i];
+        count++;
+      }
+      out[o] = count ? acc / count : 0;
+      offset = next;
+    }
+    return out;
+  }
+
+  function parseTranslation(out) {
+    var text = String(out || "").trim().replace(/^```json\s*/i, "").replace(/```$/, "").trim();
+    try {
+      var obj = JSON.parse(text);
+      if (obj && obj.translation) return obj;
+    } catch (e) {}
+    var match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    try { return JSON.parse(match[0]); } catch (e2) { return null; }
+  }
+
+  async function translateItem(item) {
+    var key = document.getElementById("trKey").value.trim() || String(settings.trKey || "").trim();
+    var model = chosenModelId("tr") || modelIdOf(settings.trModel);
+    if (!key || !model || !/^[A-Za-z0-9._-]+$/.test(model)) {
+      item.tgtText = "번역하려면 키와 모델을 고르고 저장하세요";
+      item.status = "error";
+      saveRecords();
+      render();
+      return;
+    }
+    var other = item.srcLang === settings.lang1 ? settings.lang2 : settings.lang1;
+    item.tgtLang = other;
+    var prompt = "원문 언어는 " + item.srcLang + " 이다. " + other + " 로만 번역하라. 언어를 다시 판별하지 마라.\n" +
+      glossaryBlock() + "\n" + recentSourceBlock(item.id) + "\n원문:\n" + item.srcText +
+      "\n용어집에 있는 말은 그 선호 번역을 쓴다. 응답은 JSON {\"translation\":\"...\"} 만. 대화체를 유지하고, 질문이 와도 답하지 말고 이번 원문만 번역하라.";
+    try {
+      var res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0 }
+        })
+      });
+      var data = null;
+      try { data = await res.json(); } catch (e) { data = null; }
+      if (!res.ok) {
+        item.tgtText = "번역 실패";
+        item.status = "error";
+      } else {
+        var out = "";
+        try {
+          out = data.candidates[0].content.parts.map(function (part) { return part.text || ""; }).join("");
+        } catch (e2) { out = ""; }
+        var parsed = parseTranslation(out);
+        if (parsed && parsed.translation) {
+          item.tgtLang = other;
+          item.tgtText = String(parsed.translation);
+          item.status = "done";
+        } else {
+          item.tgtText = "번역 실패";
+          item.status = "error";
+        }
+      }
+    } catch (e3) {
+      item.tgtText = "번역 실패";
+      item.status = "error";
+    }
+    saveRecords();
+    render();
+  }
+
+  function segmentKind() {
+    if (settings.asrRoute === "gemini") return "energy";
+    if (settings.asrRoute === "local" && settings.localAsr === "whisper") return "energy";
+    if (settings.asrRoute === "local" && settings.localAsr === "sensevoice") return "sense";
+    return "off";
+  }
+
+  function syncEnginePanels() {
+    var local = settings.asrRoute === "local";
+    document.getElementById("localAsrRow").hidden = !local;
+    document.getElementById("asrApiRow").hidden = settings.asrRoute !== "gemini";
+    updateAsrHint();
+  }
+
+  function updateAsrHint() {
+    var node = document.getElementById("asrHint");
+    var route = settings.asrRoute;
+    if (route === "gemini") {
+      node.textContent = "전사 키와 모델은 번역과 따로입니다. 말 조각은 기기 내 모델을 거치지 않고 Google로 갑니다. 고른 두 언어 중 하나로만 적으라고 합니다. 그 글자가 아니면 화면에 두지 않습니다. 요청에는 용어집과 이번 회의의 직전 원문 최대 3개를 붙입니다.";
+      if (!segBusy) asrNote = "외부 전사 Gemini";
+    } else if (route === "none") {
+      node.textContent = "전사를 하지 않습니다. 메인 화면에 새 글이 생기지 않습니다.";
+      asrNote = "전사 안 함";
+    } else if (settings.localAsr === "whisper") {
+      node.textContent = "기기 안 Whisper tiny로 적습니다. 이 모델을 골랐을 때만 받습니다. 음성은 나가지 않습니다. 말이 이어지는 동안 단어를 바로 띄우고, 뒤 맥락으로 앞 단어가 바뀌면 그 줄을 고칩니다. 언어는 고른 둘 중 하나로 잠급니다.";
+      if (!whisperPipe && !whisperPromise) asrNote = "Whisper 대기";
+    } else {
+      node.textContent = "기기 안 SenseVoice로 적습니다. 이 모델을 골랐을 때만 받습니다. Whisper는 받지 않습니다. 음성은 나가지 않습니다. 말이 이어지는 동안 단어를 바로 띄우고, 뒤 맥락으로 앞 단어가 바뀌면 그 줄을 고칩니다. 다섯 언어 자동 판별은 쓰지 않습니다.";
+      if (!asrReady && !asrPromise) asrNote = "SenseVoice 대기";
+    }
+    var asrApi = document.getElementById("asrApiCheck");
+    if (asrApi && !asrApi.textContent) {
+      asrApi.textContent = "전사 키를 넣으면 모델 목록을 불러옵니다. 음성은 목록 조회에 넣지 않습니다.";
+    }
+    refreshStatus();
+  }
+
+  function pushTranscript(text, lang, engine, keepInterim) {
+    if (!text) return;
+    if (demo) {
+      records = [];
+      demo = false;
+    }
+    var item = {
+      id: Date.now(),
+      startMs: sessionMs(),
+      srcLang: lang || settings.lang1,
+      srcText: text,
+      tgtLang: "",
+      tgtText: "번역 중",
+      status: "translating",
+      engine: engine
+    };
+    item.tgtLang = item.srcLang === settings.lang1 ? settings.lang2 : settings.lang1;
+    records.push(item);
+    if (!keepInterim) interim = "";
+    saveRecords();
+    follow = true;
+    render();
+    translateItem(item);
+  }
+
+  function encodeWav16(samples) {
+    var n = samples.length;
+    var buf = new ArrayBuffer(44 + n * 2);
+    var view = new DataView(buf);
+    function write(offset, text) {
+      for (var i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
+    }
+    write(0, "RIFF");
+    view.setUint32(4, 36 + n * 2, true);
+    write(8, "WAVE");
+    write(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, 16000, true);
+    view.setUint32(28, 32000, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    write(36, "data");
+    view.setUint32(40, n * 2, true);
+    var offset = 44;
+    for (var i = 0; i < n; i++) {
+      var sample = samples[i];
+      if (sample > 1) sample = 1;
+      if (sample < -1) sample = -1;
+      view.setInt16(offset, sample * 32767, true);
+      offset += 2;
+    }
+    var bytes = new Uint8Array(buf);
+    var binary = "";
+    var step = 0x8000;
+    for (var j = 0; j < bytes.length; j += step) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(j, j + step));
+    }
+    return btoa(binary);
+  }
+
+  var extPcm = [];
+  var extCount = 0;
+  var extSilence = 0;
+  var extVoiced = false;
+  var extBusy = false;
+
+  function pcmRms(pcm) {
+    var sum = 0;
+    var i = 0;
+    for (i = 0; i < pcm.length; i++) sum += pcm[i] * pcm[i];
+    return Math.sqrt(sum / Math.max(1, pcm.length));
+  }
+
+  function pcmLevel(pcm) {
+    var sum = 0;
+    var peak = 0;
+    var i = 0;
+    for (i = 0; i < pcm.length; i++) {
+      var a = pcm[i] < 0 ? -pcm[i] : pcm[i];
+      if (a > peak) peak = a;
+      sum += pcm[i] * pcm[i];
+    }
+    var rms = Math.sqrt(sum / Math.max(1, pcm.length));
+    return Math.min(100, Math.round(Math.max(rms * 4, peak) * 100));
+  }
+
+  function pushMicPre(pcm) {
+    micPre.push(pcm);
+    micPreCount += pcm.length;
+    while (micPreCount > 4800 && micPre.length) {
+      micPreCount -= micPre[0].length;
+      micPre.shift();
+    }
+  }
+
+  function takeMicPre() {
+    var chunks = micPre;
+    micPre = [];
+    micPreCount = 0;
+    chunks.forEach(addUtt);
+  }
+
+  function resetMicGate() {
+    micFloor = 0.008;
+    micCalib = 0;
+    micRun = 0;
+    micPre = [];
+    micPreCount = 0;
+  }
+
+  function segmentPlan() {
+    var step = Math.max(1, Math.min(5, Number(settings.segment) || 3));
+    var silence = [400, 550, 700, 950, 1200][step - 1];
+    var maxSec = [4, 6, 8, 11, 15][step - 1];
+    var partialMs = [800, 1100, 1500, 2000, 2500][step - 1];
+    return { step: step, silence: silence, max: maxSec, partial: partialMs };
+  }
+
+  function feedExternal(samples, sampleRate) {
+    var pcm = downsample(samples, sampleRate);
+    var voiced = pcmRms(pcm) > 0.02;
+    if (micStream) {
+      voiced = pcmLevel(pcm) >= 8;
+      if (!extVoiced) {
+        pushMicPre(pcm);
+        if (voiced) micRun += pcm.length;
+        else micRun = Math.max(0, micRun - pcm.length);
+        if (micRun >= (segmentPlan().step <= 2 ? 2400 : 4800)) {
+          extVoiced = true;
+          extSilence = 0;
+          micRun = 0;
+          takeMicPre();
+        }
+        return;
+      }
+    }
+    if (voiced) {
+      extVoiced = true;
+      extSilence = 0;
+      addUtt(pcm);
+    } else if (extVoiced) {
+      extSilence += pcm.length;
+    }
+    var plan = segmentPlan();
+    if (extVoiced && (extSilence >= 16000 * plan.silence / 1000 || uttCount >= 16000 * plan.max)) flushExternal();
+  }
+
+  function flushSense() {
+    if (segmentKind() !== "sense" || !asrReady || !vad) return;
+    releasePending();
+    var win = 512;
+    try { win = vad.config.sileroVad.windowSize || 512; } catch (e) {}
+    if (asrBuffer) {
+      while (asrBuffer.size() >= win) {
+        var frame = asrBuffer.get(asrBuffer.head(), win);
+        vad.acceptWaveform(frame);
+        asrBuffer.pop(win);
+      }
+    }
+    try { vad.flush(); } catch (e2) {}
+    while (vad && !vad.isEmpty()) {
+      var segment = vad.front();
+      vad.pop();
+      finishUtterance(segment.samples);
+    }
+  }
+
+  function flushOpen() {
+    if (segmentKind() === "sense") flushSense();
+    else flushExternal();
+  }
+
+  function flushExternal() {
+    extSilence = 0;
+    extVoiced = false;
+    if (segmentKind() !== "energy") return;
+    var merged = takeUtt();
+    finishUtterance(merged);
+  }
+
+  function resetUttBuffers() {
+    uttParts = [];
+    uttCount = 0;
+    uttNew = 0;
+    uttLang = "";
+    uttMic = false;
+  }
+
+  function takeUtt() {
+    var merged = new Float32Array(uttCount);
+    var offset = 0;
+    uttParts.forEach(function (chunk) {
+      merged.set(chunk, offset);
+      offset += chunk.length;
+    });
+    return merged;
+  }
+
+  function addUtt(pcm) {
+    if (!pcm || !pcm.length || dropUtt) return;
+    if (micStream) uttMic = true;
+    uttParts.push(pcm);
+    uttCount += pcm.length;
+    uttNew += pcm.length;
+    var gap = Math.round(16000 * segmentPlan().partial / 1000);
+    if (uttCount >= Math.min(6400, gap) && uttNew >= gap) schedulePartial();
+  }
+
+  function schedulePartial() {
+    if (uttCount < 7200 || dropUtt) return;
+    if (partialBusy) {
+      partialAgain = true;
+      return;
+    }
+    partialBusy = true;
+    partialAgain = false;
+    uttNew = 0;
+    var gen = partialGen;
+    var samples = takeUtt();
+    runPartial(samples, gen).then(function () {
+      partialBusy = false;
+      if (partialAgain && gen === partialGen && uttCount && !dropUtt) schedulePartial();
+    }, function () {
+      partialBusy = false;
+    });
+  }
+
+  async function runPartial(samples, gen) {
+    var epoch = asrEpoch;
+    try {
+      if (settings.asrRoute === "gemini") {
+        if (gen !== partialGen || dropUtt || epoch !== asrEpoch) return;
+        var heard = await geminiTranscribeText(samples, true);
+        if (gen !== partialGen || dropUtt || epoch !== asrEpoch) return;
+        var live = repeatedTake(correctSpelling(heard.text || ""));
+        if (!live || !heard.lang || !textMatchesLang(live, heard.lang)) return;
+        uttLang = heard.lang;
+        interim = live;
+        render();
+        return;
+      }
+      if (gen !== partialGen || dropUtt || epoch !== asrEpoch) return;
+      var lang = uttLang;
+      if (!lang && settings.localAsr === "sensevoice") {
+        var pickedNow = sensePickLanguage(samples);
+        if (gen !== partialGen || dropUtt || epoch !== asrEpoch) return;
+        if (!pickedNow.lang) return;
+        uttLang = pickedNow.lang;
+        interim = pickedNow.text;
+        render();
+        return;
+      }
+      if (!lang) {
+        lang = await decideLanguage(samples);
+        if (gen !== partialGen || dropUtt || epoch !== asrEpoch) return;
+        uttLang = lang;
+      }
+      var text = "";
+      if (settings.asrRoute === "local" && settings.localAsr !== "whisper") text = senseTranscribe(samples, lang);
+      else text = await whisperTranscribe(samples, lang);
+      if (gen !== partialGen || dropUtt || epoch !== asrEpoch) return;
+      text = correctSpelling(String(text || "").trim());
+      if (!text || !fitsSelectedLanguages(text)) return;
+      text = repeatedTake(text);
+      if (!text) {
+        if (interim) {
+          interim = "";
+          render();
+        }
+        return;
+      }
+      interim = text;
+      render();
+    } catch (e) {}
+  }
+
+  function finishUtterance(samples) {
+    var lang = uttLang;
+    var drop = dropUtt;
+    var fromMic = uttMic;
+    var copy = null;
+    if (samples && samples.length) {
+      copy = new Float32Array(samples.length);
+      copy.set(samples);
+    }
+    dropUtt = false;
+    partialGen++;
+    var stamp = partialGen;
+    resetUttBuffers();
+    if (drop) {
+      interim = "";
+      render();
+      return;
+    }
+    if (!copy || copy.length < 3200) return;
+    if (fromMic && pcmLevel(copy) < 8) {
+      interim = "";
+      render();
+      return;
+    }
+    enqueueFinal(copy, lang, stamp);
+  }
+
+  function enqueueFinal(samples, lang, stamp) {
+    segQueue.push({ samples: samples, lang: lang, stamp: stamp });
+    drainSegments();
+  }
+
+  async function drainSegments() {
+    if (segBusy) return;
+    segBusy = true;
+    while (segQueue.length) {
+      var job = segQueue.shift();
+      var samples = job && job.samples ? job.samples : job;
+      var lang = job && job.lang ? job.lang : "";
+      var stamp = job && job.stamp;
+      try {
+        await transcribeSegment(samples, lang, stamp);
+      } catch (e) {
+        asrNote = "인식에 실패했습니다";
+        refreshStatus();
+      }
+    }
+    segBusy = false;
+    if (settings.asrRoute === "gemini") asrNote = "외부 전사 Gemini";
+    else if (settings.asrRoute === "local" && settings.localAsr === "whisper") {
+      if (whisperPipe) asrNote = "Whisper 준비됨";
+    } else if (settings.asrRoute === "local" && asrReady) asrNote = "SenseVoice 준비됨";
+    refreshStatus();
+  }
+
+  function ensureWhisper() {
+    if (whisperPipe) return Promise.resolve(whisperPipe);
+    if (whisperPromise) return whisperPromise;
+    if (settings.asrRoute === "local" && settings.localAsr === "whisper") {
+      asrNote = "Whisper tiny를 받는 중";
+      refreshStatus();
+    }
+    whisperPromise = import(WHISPER_URL).then(function (mod) {
+      tfApi = mod;
+      if (mod.env) {
+        mod.env.allowLocalModels = false;
+        mod.env.useBrowserCache = true;
+        var wasm = mod.env.backends && mod.env.backends.onnx && mod.env.backends.onnx.wasm;
+        if (wasm) {
+          wasm.proxy = true;
+          wasm.numThreads = 1;
+        }
+      }
+      var progress = function (p) {
+        if (!(settings.asrRoute === "local" && settings.localAsr === "whisper")) return;
+        if (p && p.status === "progress" && p.total) {
+          asrNote = "Whisper tiny " + Math.floor(Number(p.loaded) * 100 / Number(p.total)) + "%";
+          refreshStatus();
+        }
+      };
+      return mod.pipeline("automatic-speech-recognition", WHISPER_MODEL, {
+        dtype: "q8",
+        device: "wasm",
+        progress_callback: progress
+      }).catch(function () {
+        return mod.pipeline("automatic-speech-recognition", WHISPER_MODEL, {
+          device: "wasm",
+          progress_callback: progress
+        });
+      });
+    }).then(function (pipe) {
+      whisperPipe = pipe;
+      if (settings.asrRoute === "local" && settings.localAsr === "whisper") asrNote = "Whisper 준비됨";
+      refreshStatus();
+      return pipe;
+    }).catch(function (e) {
+      whisperPromise = null;
+      asrNote = "Whisper를 준비하지 못했습니다";
+      refreshStatus();
+      toast(asrNote);
+      throw e;
+    });
+    return whisperPromise;
+  }
+
+  function sensePickLanguage(samples) {
+    var order = [settings.lang1];
+    if (settings.lang2 && settings.lang2 !== settings.lang1) order.push(settings.lang2);
+    var i = 0;
+    for (i = 0; i < order.length; i++) {
+      var lang = order[i];
+      if (!SENSE_OK[lang]) continue;
+      var text = repeatedTake(correctSpelling(String(senseTranscribe(samples, lang) || "").trim()));
+      if (text && textMatchesLang(text, lang)) return { lang: lang, text: text };
+    }
+    return { lang: "", text: "" };
+  }
+
+  async function decideLanguage(samples) {
+    var a = settings.lang1;
+    var b = settings.lang2;
+    if (a === b) return a;
+    var pipe = await ensureWhisper();
+    var model = pipe.model;
+    var processor = pipe.processor;
+    if (!model || !processor || !tfApi || !tfApi.Tensor) throw new Error("lid-api");
+    var cfg = model.generation_config || {};
+    var map = cfg.lang_to_id || {};
+    var idA = map["<|" + a + "|>"];
+    var idB = map["<|" + b + "|>"];
+    if (idA == null || idB == null) throw new Error("lid-token");
+    asrNote = "두 언어를 구분하는 중";
+    refreshStatus();
+    await new Promise(function (resolve) { setTimeout(resolve, 0); });
+    var prep = await processor(samples, { sampling_rate: 16000 });
+    var features = prep.input_features || prep;
+    var start = cfg.decoder_start_token_id;
+    var dec = new tfApi.Tensor("int64", BigInt64Array.from([BigInt(start)]), [1, 1]);
+    var out = await model({ input_features: features, decoder_input_ids: dec });
+    var logits = out.logits || out;
+    var data = logits.data;
+    var dims = logits.dims;
+    var vocab = dims[dims.length - 1];
+    var pos = dims.length > 2 ? dims[dims.length - 2] : 1;
+    var offset = (pos - 1) * vocab;
+    var sa = Number(data[offset + idA]);
+    var sb = Number(data[offset + idB]);
+    if (!isFinite(sa) || !isFinite(sb)) throw new Error("lid-score");
+    return sa >= sb ? a : b;
+  }
+
+  async function geminiTranscribeText(samples, quiet) {
+    if (settings.asrRoute !== "gemini") return { text: "", lang: "" };
+    var key = document.getElementById("asrKey").value.trim() || String(settings.asrKey || "").trim();
+    var model = chosenModelId("asr") || modelIdOf(settings.asrModel);
+    if (!key || !model || !/^[A-Za-z0-9._-]+$/.test(model)) {
+      toast("외부 전사는 전사 키와 모델을 고르고 저장해야 합니다.");
+      return { text: "", lang: "" };
+    }
+    var prompt = "고른 언어는 " + settings.lang1 + " 와 " + settings.lang2 + " 뿐이다. 이 음성은 그 둘 중 하나로만 받아 적어라. 어느 쪽인지는 네가 정하라. 둘 다 아니면 text는 빈 문자열로 하라. 그 두 언어의 글자가 아닌 문자는 적지 마라. 번역하지 마라.\n" +
+      glossaryBlock() + "\n" + recentSourceBlock() + "\n용어집의 원어 표기가 소리와 맞으면 그 철자를 쓴다. 응답은 JSON {\"lang\":\"" + settings.lang1 + " 또는 " + settings.lang2 + "\",\"text\":\"...\"} 만.";
+    asrNote = "Gemini에 보내는 중";
+    refreshStatus();
+    var res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify({
+        contents: [{
+          role: "user",
+          parts: [
+            { inlineData: { mimeType: "audio/wav", data: encodeWav16(samples) } },
+            { text: prompt }
+          ]
+        }],
+        generationConfig: { temperature: 0 }
+      })
+    });
+    var data = null;
+    try { data = await res.json(); } catch (e) { data = null; }
+    if (!res.ok) {
+      var reason = geminiErrorText(res.status, data, key);
+      asrNote = reason.slice(0, 40);
+      refreshStatus();
+      toast(reason);
+      return { text: "", lang: "" };
+    }
+    var out = "";
+    try {
+      out = data.candidates[0].content.parts.map(function (part) { return part.text || ""; }).join("");
+    } catch (e2) { out = ""; }
+    var parsed = parseTranslation(out);
+    if (!parsed) {
+      var rawJson = String(out || "").trim().replace(/^```json\s*/i, "").replace(/```$/, "").trim();
+      try { parsed = JSON.parse(rawJson); } catch (e3) { parsed = null; }
+    }
+    var text = parsed && (parsed.text || parsed.translation) ? String(parsed.text || parsed.translation) : "";
+    var heardLang = parsed && parsed.lang ? String(parsed.lang).trim() : "";
+    if (heardLang !== settings.lang1 && heardLang !== settings.lang2) {
+      if (text && textMatchesLang(text, settings.lang1)) heardLang = settings.lang1;
+      else if (text && textMatchesLang(text, settings.lang2)) heardLang = settings.lang2;
+      else heardLang = "";
+    }
+    if (!text && !quiet) toast("Gemini가 받아 적지 못했습니다.");
+    return { text: text, lang: heardLang };
+  }
+
+  function senseRecognizer(lang) {
+    if (senseByLang[lang]) return senseByLang[lang];
+    var rec = new OfflineRecognizer({
+      modelConfig: {
+        debug: 0,
+        tokens: "/tokens.txt",
+        senseVoice: { model: "/sense-voice.onnx", language: lang, useInverseTextNormalization: 1 }
+      }
+    }, window.Module);
+    if (!rec.handle) throw new Error("인식기를 만들지 못했습니다");
+    senseByLang[lang] = rec;
+    return rec;
+  }
+
+  function senseTranscribe(samples, lang) {
+    if (!SENSE_OK[lang]) {
+      asrNote = "SenseVoice는 이 언어를 지정해 적을 수 없습니다";
+      refreshStatus();
+      toast(asrNote);
+      return "";
+    }
+    var rec = senseRecognizer(lang);
+    var stream = null;
+    try {
+      stream = rec.createStream();
+      stream.acceptWaveform(16000, samples);
+      rec.decode(stream);
+      var result = rec.getResult(stream) || {};
+      return String(result.text || "").replace(/<\|.*?\|>/g, "").trim();
+    } finally {
+      if (stream && stream.free) {
+        try { stream.free(); } catch (e2) {}
+      }
+    }
+  }
+
+  function letterStats(text) {
+    var stats = { hangul: 0, latin: 0, han: 0, kana: 0, cyr: 0, thai: 0 };
+    var s = String(text || "");
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i);
+      if (c >= 0xac00 && c <= 0xd7a3) stats.hangul++;
+      else if ((c >= 65 && c <= 90) || (c >= 97 && c <= 122)) stats.latin++;
+      else if (c >= 0x4e00 && c <= 0x9fff) stats.han++;
+      else if (c >= 0x3040 && c <= 0x30ff) stats.kana++;
+      else if (c >= 0x0400 && c <= 0x04ff) stats.cyr++;
+      else if (c >= 0x0e00 && c <= 0x0e7f) stats.thai++;
+    }
+    return stats;
+  }
+
+  function textMatchesLang(text, lang) {
+    var stats = letterStats(text);
+    var letters = stats.hangul + stats.latin + stats.han + stats.kana + stats.cyr + stats.thai;
+    if (!letters) return false;
+    if (lang === "ko") return stats.hangul > 0 && stats.han === 0 && stats.kana === 0;
+    if (lang === "ja") return stats.kana > 0 && stats.hangul === 0;
+    if (lang === "zh") return stats.han > 0 && stats.hangul === 0 && stats.kana === 0;
+    if (lang === "ru") return stats.cyr > 0 && stats.hangul === 0 && stats.han === 0;
+    if (lang === "th") return stats.thai > 0 && stats.hangul === 0 && stats.han === 0;
+    return stats.latin > 0 && stats.han === 0 && stats.kana === 0 && stats.hangul === 0 && stats.cyr === 0 && stats.thai === 0;
+  }
+
+  function fitsSelectedLanguages(text) {
+    return textMatchesLang(text, settings.lang1) || textMatchesLang(text, settings.lang2);
+  }
+
+  async function coerceSelectedLanguage(samples, text, lang, engine) {
+    if (text && fitsSelectedLanguages(text)) return { text: text, lang: lang, engine: engine };
+    var order = [lang];
+    var other = lang === settings.lang1 ? settings.lang2 : settings.lang1;
+    if (other && other !== lang) order.push(other);
+    for (var i = 0; i < order.length; i++) {
+      var tryLang = order[i];
+      var next = correctSpelling(String(await whisperTranscribe(samples, tryLang) || "").trim());
+      if (next && textMatchesLang(next, tryLang)) return { text: next, lang: tryLang, engine: "whisper" };
+    }
+    asrNote = "지정한 두 언어로 적지 못한 조각은 빼 두었습니다";
+    refreshStatus();
+    return { text: "", lang: lang, engine: engine };
+  }
+
+  async function whisperTranscribe(samples, lang) {
+    var name = WHISPER_NAME[lang];
+    if (!name) {
+      toast("Whisper에 넣을 언어 이름이 없습니다.");
+      return "";
+    }
+    var pipe = await ensureWhisper();
+    var out = await pipe(samples, { language: name, task: "transcribe", return_timestamps: false });
+    return String(out && out.text || "").trim();
+  }
+
+  async function transcribeSegment(samples, langHint, stamp) {
+    if (settings.asrRoute === "none") return;
+    var epoch = asrEpoch;
+    if (settings.asrRoute === "gemini") {
+      var heard = await geminiTranscribeText(samples);
+      if (epoch !== asrEpoch) return;
+      var geminiText = repeatedTake(correctSpelling(heard.text || ""));
+      if (stamp == null || stamp === partialGen) interim = "";
+      if (!geminiText || !heard.lang || !textMatchesLang(geminiText, heard.lang)) {
+        asrNote = "지정한 두 언어로 적지 못한 조각은 빼 두었습니다";
+        refreshStatus();
+        render();
+        return;
+      }
+      pushTranscript(geminiText, heard.lang, "gemini", stamp != null && stamp !== partialGen);
+      return;
+    }
+    var lang = langHint;
+    if (settings.localAsr === "sensevoice") {
+      var picked = lang ? { lang: lang, text: repeatedTake(correctSpelling(String(senseTranscribe(samples, lang) || "").trim())) } : sensePickLanguage(samples);
+      if (picked.text && picked.lang && !textMatchesLang(picked.text, picked.lang)) picked = sensePickLanguage(samples);
+      if (epoch !== asrEpoch) return;
+      if (stamp == null || stamp === partialGen) interim = "";
+      if (!picked.text || !picked.lang) {
+        asrNote = "지정한 두 언어로 적지 못한 조각은 빼 두었습니다";
+        refreshStatus();
+        render();
+        return;
+      }
+      pushTranscript(picked.text, picked.lang, "sensevoice", stamp != null && stamp !== partialGen);
+      return;
+    }
+    if (!lang) {
+      asrNote = "두 언어를 구분하는 중";
+      refreshStatus();
+      lang = await decideLanguage(samples);
+    }
+    if (epoch !== asrEpoch) return;
+    if (lang !== settings.lang1 && lang !== settings.lang2) {
+      asrNote = "언어를 정하지 못했습니다";
+      refreshStatus();
+      toast("언어를 정하지 못해 이 조각은 적지 않았습니다.");
+      return;
+    }
+    var text = "";
+    var engine = "";
+    if (settings.localAsr === "whisper") {
+      engine = "whisper";
+      text = await whisperTranscribe(samples, lang);
+    } else {
+      return;
+    }
+    if (epoch !== asrEpoch) return;
+    text = correctSpelling(text);
+    if (!text || !fitsSelectedLanguages(text)) {
+      var kept = await coerceSelectedLanguage(samples, "", lang, engine);
+      if (epoch !== asrEpoch) return;
+      text = kept.text;
+      lang = kept.lang;
+      engine = kept.engine;
+    }
+    text = repeatedTake(text);
+    if (stamp == null || stamp === partialGen) interim = "";
+    if (text) pushTranscript(text, lang, engine, stamp != null && stamp !== partialGen);
+  }
+
+  function rememberPending(pcm) {
+    if (!pcm || !pcm.length) return;
+    pendingPcm.push(pcm);
+    var total = 0;
+    var i = 0;
+    for (i = 0; i < pendingPcm.length; i++) total += pendingPcm[i].length;
+    while (total > 16000 * 180 && pendingPcm.length) {
+      total -= pendingPcm[0].length;
+      pendingPcm.shift();
+    }
+  }
+
+  function releasePending() {
+    if (!asrReady || !vad || !asrBuffer || !pendingPcm.length) return;
+    var queued = pendingPcm;
+    pendingPcm = [];
+    for (var i = 0; i < queued.length; i++) pushAsrPcm(queued[i]);
+  }
+
+  function feedAsr(samples, sampleRate) {
+    var pcm = downsample(samples, sampleRate);
+    if (!asrReady || !vad || !asrBuffer) {
+      rememberPending(pcm);
+      return;
+    }
+    releasePending();
+    pushAsrPcm(pcm);
+  }
+
+  function pushAsrPcm(pcm) {
+    if (!pcm || !pcm.length || !asrReady || !vad || !asrBuffer) return;
+    asrBuffer.push(pcm);
+    var win = 512;
+    try { win = vad.config.sileroVad.windowSize || 512; } catch (e) {}
+    while (asrBuffer.size() > win) {
+      var frame = asrBuffer.get(asrBuffer.head(), win);
+      vad.acceptWaveform(frame);
+      asrBuffer.pop(win);
+      var heard = false;
+      try { heard = vad.isDetected(); } catch (e2) { heard = false; }
+      if (heard) {
+        var piece = new Float32Array(frame.length);
+        piece.set(frame);
+        addUtt(piece);
+        asrHeard = true;
+      } else {
+        asrHeard = false;
+      }
+      while (!vad.isEmpty()) {
+        var segment = vad.front();
+        vad.pop();
+        finishUtterance(segment.samples);
+      }
+    }
+  }
+
+  function resetAsrAudio() {
+    asrEpoch++;
+    asrHeard = false;
+    interim = "";
+    dropUtt = false;
+    partialGen++;
+    pendingPcm = [];
+    resetUttBuffers();
+    extPcm = [];
+    extCount = 0;
+    extSilence = 0;
+    extVoiced = false;
+    segQueue = [];
+    try { if (vad) vad.reset(); } catch (e) {}
+    try { if (asrBuffer) asrBuffer.reset(); } catch (e2) {}
+  }
+
+  function ensureAsrTap() {
+    ensureGraph();
+    if (asrProc) return;
+    asrProc = audioCtx.createScriptProcessor(16384, 1, 1);
+    asrSink = audioCtx.createGain();
+    asrSink.gain.value = 0.00001;
+    asrProc.connect(asrSink);
+    asrSink.connect(audioCtx.destination);
+    asrProc.onaudioprocess = function (event) {
+      var kind = segmentKind();
+      if (kind === "off") return;
+      var micOn = !!micStream;
+      var fileOn = !!(el.player && !el.player.paused && !el.player.ended);
+      if (!micOn && !fileOn) return;
+      heardFrames++;
+      var input = event.inputBuffer.getChannelData(0);
+      var copy = new Float32Array(input.length);
+      copy.set(input);
+      if (kind === "energy") feedExternal(copy, audioCtx.sampleRate);
+      else feedAsr(copy, audioCtx.sampleRate);
+    };
+  }
+
+  function connectAsr(node) {
+    ensureAsrTap();
+    try { node.connect(asrProc); } catch (e) {}
+  }
+
+  function bootRecognizer(Module) {
+    vad = createVad(Module);
+    asrBuffer = new CircularBuffer(30 * 16000, Module);
+  }
+
+  function startEngines() {
+    if (settings.asrRoute !== "local") return;
+    if (settings.localAsr === "sensevoice") ensureEngine();
+    else if (settings.localAsr === "whisper") ensureWhisper();
+  }
+
+  function ensureEngine() {
+    if (!(settings.asrRoute === "local" && settings.localAsr === "sensevoice")) return Promise.resolve(false);
+    if (asrReady) return Promise.resolve(true);
+    if (asrPromise) return asrPromise;
+    asrNote = "전사 모델을 받는 중";
+    refreshStatus();
+    asrPromise = new Promise(function (resolve, reject) {
+      window.Module = {
+        locateFile: function (path) { return ASR_BASE + path; },
+        setStatus: function (status) {
+          var text = String(status || "");
+          var match = text.match(/Downloading data\.\.\. \((\d+)\/(\d+)\)/);
+          if (match) {
+            var total = Number(match[2]);
+            var pct = total ? Math.floor(Number(match[1]) * 100 / total) : 0;
+            asrNote = "모델 받는 중 " + pct + "%";
+          } else if (text && text !== "Running...") {
+            asrNote = "전사 준비 중";
+          }
+          refreshStatus();
+        },
+        onRuntimeInitialized: function () {
+          try {
+            bootRecognizer(window.Module);
+            asrReady = true;
+            asrNote = "SenseVoice 준비됨";
+            releasePending();
+            if (!micStream && el.player && (el.player.paused || el.player.ended)) flushSense();
+            refreshStatus();
+            resolve(true);
+          } catch (e) {
+            asrNote = "전사를 준비하지 못했습니다";
+            var detail = String(e && e.message || e || "").slice(0, 80);
+            if (detail) asrNote += " · " + detail;
+            refreshStatus();
+            toast(asrNote);
+            asrPromise = null;
+            reject(e);
+          }
+        }
+      };
+      loadScript(ASR_BASE + "sherpa-onnx-asr.js").then(function () {
+        return loadScript(ASR_BASE + "sherpa-onnx-vad.js");
+      }).then(function () {
+        return loadScript(ASR_BASE + "sherpa-onnx-wasm-main-vad-asr.js");
+      }).catch(function () {
+        asrNote = "전사 파일을 받지 못했습니다";
+        refreshStatus();
+        toast(asrNote);
+        asrPromise = null;
+        reject(new Error("load"));
+      });
+    });
+    return asrPromise;
+  }
+
+  async function openMicStream() {
+    var audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 };
+    try {
+      return await navigator.mediaDevices.getUserMedia({ audio: audio });
+    } catch (e) {
+      if (e && (e.name === "OverconstrainedError" || e.name === "ConstraintNotSatisfiedError")) {
+        return navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+      throw e;
+    }
+  }
+
+  function stopStream(stream) {
+    if (!stream) return;
+    stream.getTracks().forEach(function (t) {
+      try { t.stop(); } catch (e) {}
+    });
+  }
+
+  async function toggleMic() {
+    if (micStream || micStarting) {
+      disconnectMic();
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      el.status.textContent = "이 브라우저에서는 마이크를 쓸 수 없습니다.";
+      toast(el.status.textContent);
+      return;
+    }
+    micStarting = true;
+    var gen = micGen;
+    setMicUi(true);
+    el.status.textContent = "마이크 연결 중";
+    try {
+      if (!el.player.paused) el.player.pause();
+      ensureGraph();
+      if (audioCtx.state === "suspended") await audioCtx.resume();
+      if (gen !== micGen || !micStarting) return;
+      startEngines();
+      var stream = await openMicStream();
+      if (gen !== micGen || !micStarting) {
+        stopStream(stream);
+        return;
+      }
+      resetMicGate();
+      heardFrames = 0;
+      lastLevel = 0;
+      micOpenedAt = Date.now();
+      micStream = stream;
+      micStarting = false;
+      micNode = audioCtx.createMediaStreamSource(stream);
+      micNode.connect(analyser);
+      if (settings.asrRoute !== "none") connectAsr(micNode);
+      var track = stream.getAudioTracks()[0];
+      if (track) {
+        track.onended = function () {
+          if (micStream === stream) disconnectMic();
+        };
+      }
+      setMicUi(true);
+      setRunning(true);
+    } catch (e) {
+      if (gen !== micGen) return;
+      micStarting = false;
+      disconnectMic();
+      var message = micErrorText(e);
+      el.status.textContent = message;
+      toast(message);
+    }
+  }
+
+  function playSelected() {
+    if (!files.length) {
+      toast("사이드바에서 오디오 파일을 먼저 추가하세요.");
+      return;
+    }
+    var entry = files[fileIndex] || files[0];
+    if (micStream || micStarting) disconnectMic();
+    try {
+      wireFile();
+      if (settings.asrRoute !== "none") {
+        resetAsrAudio();
+        startEngines();
+        connectAsr(mediaNode);
+        if (settings.asrRoute === "local" && settings.localAsr === "sensevoice" && !asrReady) {
+          toast("SenseVoice를 준비하는 동안 이 소리는 모아 둡니다. 준비되면 적습니다.");
+        }
+      }
+    } catch (e) {
+      toast("파일 소리를 분석 경로에 연결하지 못했습니다.");
+      return;
+    }
+    if (el.player.src !== entry.url) {
+      el.player.src = entry.url;
+    }
+    el.player.volume = muted ? 0 : savedVolume;
+    el.player.playbackRate = Number(settings.playbackRate) || 1;
+    var playPromise = el.player.play();
+    if (playPromise && playPromise.catch) {
+      playPromise.catch(function () {
+        toast("이 브라우저가 파일 형식을 재생하지 못했습니다.");
+      });
+    }
+  }
+
+  function setOpenFold(id) {
+    var folds = document.querySelectorAll("#sidebar .fold");
+    for (var i = 0; i < folds.length; i++) {
+      var fold = folds[i];
+      var on = !!id && fold.getAttribute("data-fold") === id;
+      var body = fold.querySelector(".fold-body");
+      var btn = fold.querySelector(".fold-btn");
+      if (body) body.hidden = !on;
+      if (btn) {
+        btn.setAttribute("aria-expanded", on ? "true" : "false");
+        var mark = btn.querySelector(".fold-mark");
+        if (mark) mark.textContent = on ? "▾" : "▸";
+      }
+    }
+    if (id) {
+      var openNode = document.querySelector('#sidebar .fold[data-fold="' + id + '"]');
+      if (openNode && openNode.scrollIntoView) openNode.scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  function openSidebar(open, foldId) {
+    el.sidebar.classList.toggle("open", open);
+    el.backdrop.classList.toggle("show", open);
+    if (open) setOpenFold(foldId || "");
+  }
+
+  document.getElementById("menuBtn").addEventListener("click", function () {
+    openSidebar(!el.sidebar.classList.contains("open"));
+  });
+  document.getElementById("apiBtn").addEventListener("click", function () {
+    openSidebar(true, "models");
+  });
+  document.querySelectorAll("#sidebar .fold-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var fold = btn.closest(".fold");
+      var id = fold ? fold.getAttribute("data-fold") : "";
+      var open = btn.getAttribute("aria-expanded") === "true";
+      setOpenFold(open ? "" : id);
+    });
+  });
+  document.getElementById("closeSide").addEventListener("click", function () {
+    openSidebar(false);
+  });
+  el.backdrop.addEventListener("click", function () { openSidebar(false); });
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") openSidebar(false);
+  });
+
+  document.getElementById("sidebar").addEventListener("input", onSettingInput);
+  document.getElementById("sidebar").addEventListener("change", onSettingInput);
+
+  document.getElementById("bgImage").addEventListener("change", function (event) {
+    var file = event.target.files && event.target.files[0];
+    if (!file) return;
+    if (file.size > 1500000) {
+      toast("배경 이미지는 1.5MB 이하만 저장합니다.");
+      event.target.value = "";
+      return;
+    }
+    var reader = new FileReader();
+    reader.onload = function () {
+      settings.bgImage = String(reader.result || "");
+      applyTheme();
+      updateSaveState();
+    };
+    reader.readAsDataURL(file);
+  });
+  document.getElementById("clearBg").addEventListener("click", function () {
+    settings.bgImage = "";
+    document.getElementById("bgImage").value = "";
+    applyTheme();
+    updateSaveState();
+  });
+  document.getElementById("checkKeyBtn").addEventListener("click", function () {
+    checkGeminiKey();
+  });
+  document.getElementById("trModelsBtn").addEventListener("click", function () { loadModelList("tr"); });
+  document.getElementById("asrModelsBtn").addEventListener("click", function () { loadModelList("asr"); });
+  document.getElementById("trNewModelBtn").addEventListener("click", function () { addTypedModel("tr"); });
+  document.getElementById("asrNewModelBtn").addEventListener("click", function () { addTypedModel("asr"); });
+  document.getElementById("trNewModel").addEventListener("keydown", function (event) {
+    if (event.key === "Enter") { event.preventDefault(); addTypedModel("tr"); }
+  });
+  document.getElementById("asrNewModel").addEventListener("keydown", function (event) {
+    if (event.key === "Enter") { event.preventDefault(); addTypedModel("asr"); }
+  });
+  document.getElementById("trKey").addEventListener("blur", function () {
+    if (document.getElementById("trKey").value.trim()) loadModelList("tr");
+  });
+  document.getElementById("asrKey").addEventListener("blur", function () {
+    if (document.getElementById("asrKey").value.trim()) loadModelList("asr");
+  });
+  document.getElementById("saveSettingsBtn").addEventListener("click", function () {
+    commitSettings("설정을 저장했습니다.");
+  });
+  document.getElementById("modeTest").addEventListener("click", function () { setAppMode("test"); });
+  document.getElementById("modeTalk").addEventListener("click", function () { setAppMode("talk"); });
+  document.getElementById("defaultBtn").addEventListener("click", function () {
+    settings = Object.assign({}, defaults);
+    settings.trModelIds = [];
+    settings.asrModelIds = [];
+    trFetchedModels = [];
+    asrFetchedModels = [];
+    bindSettings();
+    document.getElementById("bgImage").value = "";
+    applyTheme();
+    render();
+    clearKeyCheck();
+    commitSettings("기본값으로 저장했습니다. API 키는 비웠습니다.");
+  });
+
+  document.getElementById("fileInput").addEventListener("change", function (event) {
+    var list = event.target.files;
+    if (!list || !list.length) return;
+    var startAt = files.length;
+    for (var i = 0; i < list.length; i++) {
+      files.push({ file: list[i], url: URL.createObjectURL(list[i]) });
+    }
+    fileIndex = startAt;
+    event.target.value = "";
+    renderFiles();
+    playSelected();
+  });
+
+  document.getElementById("seedBtn").addEventListener("click", seed);
+  document.getElementById("clearBtn").addEventListener("click", clearRecords);
+  document.getElementById("newSessionBtn").addEventListener("click", newSession);
+  function applyVolume(percent) {
+    var value = Math.max(0, Math.min(100, Number(percent) || 0));
+    document.getElementById("vol").value = String(value);
+    if (value === 0) {
+      muted = true;
+      el.player.volume = 0;
+    } else {
+      muted = false;
+      savedVolume = value / 100;
+      el.player.volume = savedVolume;
+    }
+    document.getElementById("muteBtn").textContent = muted ? "음소거 해제" : "음소거";
+    document.getElementById("muteBtn").classList.toggle("active", muted);
+  }
+
+  function playFile() {
+    if (!files.length) {
+      toast("먼저 파일을 여세요.");
+      document.getElementById("fileInput").click();
+      return;
+    }
+    if (el.player.ended) el.player.currentTime = 0;
+    playSelected();
+  }
+
+  function pauseFile() {
+    flushOpen();
+    el.player.pause();
+    setRunning(false);
+  }
+
+  function updateFileTime() {
+    var cur = el.player.currentTime || 0;
+    var dur = el.player.duration;
+    document.getElementById("fileTime").textContent = mediaClock(cur * 1000) + " / " + (isFinite(dur) ? mediaClock(dur * 1000) : "00:00");
+    if (!seeking && isFinite(dur) && dur > 0) {
+      document.getElementById("seek").value = String(Math.round((cur / dur) * 1000));
+    }
+  }
+
+  function mediaClock(ms) {
+    var s = Math.max(0, Math.floor(ms / 1000));
+    var hh = Math.floor(s / 3600);
+    var mm = Math.floor((s % 3600) / 60);
+    var ss = s % 60;
+    var tail = String(mm).padStart(2, "0") + ":" + String(ss).padStart(2, "0");
+    return hh > 0 ? String(hh) + ":" + tail : tail;
+  }
+
+  document.getElementById("saveBtn").addEventListener("click", saveMd);
+  document.getElementById("saveAsBtn").addEventListener("click", saveMdAs);
+  document.getElementById("micBtn").addEventListener("click", toggleMic);
+  document.getElementById("playBtn").addEventListener("click", function () {
+    if (!el.player.paused) el.player.pause();
+    document.getElementById("fileInput").click();
+  });
+  document.getElementById("playStartBtn").addEventListener("click", playFile);
+  document.getElementById("pauseBtn").addEventListener("click", pauseFile);
+  document.getElementById("seek").addEventListener("pointerdown", function () { seeking = true; });
+  document.getElementById("seek").addEventListener("pointerup", function () { seeking = false; });
+  document.getElementById("seek").addEventListener("pointercancel", function () { seeking = false; });
+  document.getElementById("seek").addEventListener("change", function () { seeking = false; });
+  document.getElementById("seek").addEventListener("input", function (event) {
+    var dur = el.player.duration;
+    if (!isFinite(dur) || dur <= 0) return;
+    seeking = true;
+    resetAsrAudio();
+    el.player.currentTime = (Number(event.target.value) / 1000) * dur;
+    document.getElementById("fileTime").textContent = mediaClock(el.player.currentTime * 1000) + " / " + mediaClock(dur * 1000);
+  });
+  document.getElementById("vol").addEventListener("input", function (event) {
+    applyVolume(event.target.value);
+  });
+  document.getElementById("muteBtn").addEventListener("click", function () {
+    if (muted || el.player.volume === 0) {
+      applyVolume(Math.round((savedVolume || 1) * 100) || 100);
+    } else {
+      savedVolume = el.player.volume || savedVolume || 1;
+      applyVolume(0);
+    }
+  });
+  el.player.addEventListener("play", function () {
+    document.getElementById("playStartBtn").classList.add("active");
+    setRunning(true);
+  });
+  el.player.addEventListener("pause", function () {
+    document.getElementById("playStartBtn").classList.remove("active");
+    setRunning(false);
+  });
+  el.player.addEventListener("timeupdate", updateFileTime);
+  el.player.addEventListener("loadedmetadata", updateFileTime);
+  el.player.addEventListener("ended", function () {
+    flushOpen();
+    setRunning(false);
+    updateFileTime();
+  });
+  el.player.addEventListener("error", function () {
+    toast("오디오 파일을 재생하지 못했습니다.");
+  });
+
+  el.transcript.addEventListener("scroll", function () {
+    if (ignoreScroll) return;
+    var gap = el.transcript.scrollHeight - el.transcript.scrollTop - el.transcript.clientHeight;
+    if (gap > 80) {
+      follow = false;
+      el.jump.style.display = "block";
+    } else {
+      follow = true;
+      el.jump.style.display = "none";
+    }
+  });
+  el.jump.addEventListener("click", function () {
+    follow = true;
+    el.transcript.scrollTop = el.transcript.scrollHeight;
+    el.jump.style.display = "none";
+  });
+
+  bindSettings();
+  applyTheme();
+  applyVolume(100);
+  render();
+  showApiCheck(defaultApiHint(), "");
+  updateAsrHint();
+  markSaved();
+  timerId = setInterval(tick, 200);
+  window.addEventListener("beforeunload", function () {
+    saveRecords();
+  });
+})();
+</script>
+</body>
+</html>
