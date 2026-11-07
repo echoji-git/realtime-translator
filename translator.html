@@ -150,6 +150,7 @@
         <label for="asrRoute">전사 제공자</label>
         <select id="asrRoute">
           <option value="gemini">Gemini 음성</option>
+          <option value="pc">PC API</option>
           <option value="local">기기 내</option>
           <option value="none">연결 안 함</option>
         </select>
@@ -174,14 +175,25 @@
           <button id="asrModelsBtn" class="bar-btn" type="button">전사 모델 목록</button>
           <p id="asrApiCheck" class="hint"></p>
         </div>
+        <div id="pcBaseRow" hidden>
+          <label for="pcBase">PC API 주소</label>
+          <input id="pcBase" type="text" autocomplete="off" spellcheck="false" placeholder="https://….trycloudflare.com">
+          <p class="hint">A PC가 알려 준 HTTPS 주소만 넣습니다. 받아쓰기는 /inference 로 가고, 번역은 /api/chat 으로 갑니다. 키는 없습니다. 이 브라우저는 모델 파일을 받지 않습니다.</p>
+        </div>
         <p id="asrHint" class="hint"></p>
         <h3>번역</h3>
         <label for="trRoute">번역 제공자</label>
         <select id="trRoute">
           <option value="gemini">Gemini 텍스트</option>
+          <option value="pc">PC API</option>
           <option value="gemma">기기 내 Gemma</option>
         </select>
         <p id="trRouteHint" class="hint">번역 칸은 전사 칸과 따로입니다. 확정된 글만 보내고, 음성은 이 칸으로 나가지 않습니다.</p>
+        <div id="pcModelRow" hidden>
+          <label for="pcModel">Ollama 모델</label>
+          <input id="pcModel" type="text" autocomplete="off" spellcheck="false" placeholder="qwen2.5:1.5b">
+          <p class="hint">확정된 글만 보냅니다. 음성은 이 칸으로 나가지 않습니다. 주소는 위의 PC API 주소와 같습니다.</p>
+        </div>
         <div id="gemmaRow" hidden>
           <p class="hint">회의 번역은 이미 받아 둔 Gemma 4 E2B 가중치를 고릅니다. Google AI Edge Gallery가 받는 파일 이름은 gemma-4-E2B-it.litertlm입니다. 그 파일은 앱 전용 폴더에 있어 이 페이지가 그 폴더를 바로 열지는 못합니다. 파일 고르기에서 그 파일이 보이면 한 번 고릅니다. 이 브라우저가 그 선택을 기억하면 다음에도 같은 파일을 씁니다. 음성은 나가지 않습니다. 문서에 적힌 브라우저용 파일은 이름이 다른 더 작은 파일이라, 앱이 받은 파일이 여기서 열리지 않을 수 있습니다.</p>
           <button id="gemmaPickBtn" class="bar-btn" type="button">Gemma 가중치 고르기</button>
@@ -239,7 +251,7 @@
       <div id="fold-segment" class="fold-body" hidden>
         <label for="segment">분절 길이 <span id="segmentVal"></span></label>
         <input id="segment" type="range" min="1" max="5" step="1">
-        <p class="hint">1은 무음 0.4초·최대 4초, 5는 무음 1.2초·최대 15초입니다. Gemini 음성은 말하는 동안에도 그 간격으로 글을 받아 보여 줍니다. 받아 올 때마다 한도가 줄어듭니다.</p>
+        <p class="hint">1은 무음 0.4초·최대 4초, 5는 무음 1.2초·최대 15초입니다. Gemini 음성과 PC API는 말하는 동안에도 그 간격으로 글을 받아 보여 줍니다. Gemini는 받아 올 때마다 한도가 줄어듭니다.</p>
       </div>
     </section>
     <section class="fold" data-fold="screen">
@@ -378,6 +390,7 @@
     asrRoute: "gemini", localAsr: "sensevoice",
     asrKey: "", asrModel: "", asrModelIds: [],
     trRoute: "gemini", trKey: "", trModel: "", trModelIds: [],
+    pcBase: "", pcModel: "",
     glossary: "",
     playbackRate: "1", mdFormat: "table", appMode: "test"
   };
@@ -515,9 +528,11 @@
       else if (s.asrEngine === "none") s.asrRoute = "none";
       else s.asrRoute = "local";
     }
-    if (s.asrRoute !== "local" && s.asrRoute !== "gemini" && s.asrRoute !== "none") s.asrRoute = "local";
+    if (s.asrRoute !== "local" && s.asrRoute !== "gemini" && s.asrRoute !== "none" && s.asrRoute !== "pc") s.asrRoute = "local";
     if (s.localAsr !== "whisper") s.localAsr = "sensevoice";
-    if (s.trRoute !== "gemini" && s.trRoute !== "gemma") s.trRoute = "gemini";
+    if (s.trRoute !== "gemini" && s.trRoute !== "gemma" && s.trRoute !== "pc") s.trRoute = "gemini";
+    s.pcBase = String(s.pcBase || "").trim();
+    s.pcModel = String(s.pcModel || "").trim();
     if (!s.trKey && s.geminiKey) s.trKey = s.geminiKey;
     if (!s.trModel && s.geminiModel) s.trModel = s.geminiModel;
     if (s.asrRoute === "gemini") {
@@ -619,6 +634,8 @@
     document.getElementById("segment").value = settings.segment;
     document.getElementById("trKey").value = settings.trKey || "";
     document.getElementById("asrKey").value = settings.asrKey || "";
+    document.getElementById("pcBase").value = settings.pcBase || "";
+    document.getElementById("pcModel").value = settings.pcModel || "";
     document.getElementById("glossary").value = settings.glossary || "";
     paintModelSelect("tr");
     paintModelSelect("asr");
@@ -689,9 +706,11 @@
   function readAllSettings() {
     ["lang1", "lang2", "displayMode", "asrRoute", "localAsr", "trRoute", "playbackRate", "mdFormat",
       "bgColor", "srcSize", "tgtSize", "srcColor", "tgtColor", "maxItems", "segment",
-      "trKey", "asrKey", "glossary"].forEach(readForm);
+      "trKey", "asrKey", "glossary", "pcBase", "pcModel"].forEach(readForm);
     settings.trKey = String(settings.trKey || "").trim();
     settings.asrKey = String(settings.asrKey || "").trim();
+    settings.pcBase = String(settings.pcBase || "").trim();
+    settings.pcModel = String(settings.pcModel || "").trim();
     applyChosenModel("tr");
     applyChosenModel("asr");
     settings = migrateSettings(settings);
@@ -1273,12 +1292,14 @@
     if (name === "sensevoice") return "SenseVoice";
     if (name === "whisper") return "Whisper";
     if (name === "gemini") return "Gemini 음성";
+    if (name === "pc-whisper") return "PC Whisper";
     return "";
   }
 
   function asrStatusLabel() {
     if (settings.asrRoute === "none") return "연결 안 함";
     if (settings.asrRoute === "gemini") return "Gemini 음성";
+    if (settings.asrRoute === "pc") return "PC API";
     if (settings.localAsr === "whisper") return "기기 내 Whisper";
     return "기기 내 SenseVoice";
   }
@@ -1902,9 +1923,81 @@
     toast("Gemma 가중치를 이 브라우저에 두었습니다. 원본과 같은 크기만큼 저장 공간을 더 씁니다.");
   }
 
+  function pcOrigin() {
+    var raw = String(settings.pcBase || "").trim();
+    if (!raw) return "";
+    try {
+      var url = new URL(raw);
+      var loopback = url.hostname === "127.0.0.1" || url.hostname === "localhost";
+      if (url.protocol === "https:" || (url.protocol === "http:" && loopback)) return url.origin;
+    } catch (e) {}
+    return "";
+  }
+
+  function wavBlob(samples) {
+    var binary = atob(encodeWav16(samples));
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: "audio/wav" });
+  }
+
+  async function translateWithPc(item) {
+    var origin = pcOrigin();
+    var model = String(settings.pcModel || "").trim();
+    if (!origin || !model || !/^[A-Za-z0-9._:-]+$/.test(model)) {
+      item.tgtText = "번역하려면 PC API 주소와 Ollama 모델을 넣고 저장하세요";
+      item.status = "error";
+      saveRecords();
+      render();
+      return;
+    }
+    var other = item.srcLang === settings.lang1 ? settings.lang2 : settings.lang1;
+    item.tgtLang = other;
+    var prompt = "원문 언어는 " + item.srcLang + " 이다. " + other + " 로만 번역하라. 언어를 다시 판별하지 마라.\n" +
+      glossaryBlock() + "\n" + recentSourceBlock(item.id) + "\n원문:\n" + item.srcText +
+      "\n용어집에 있는 말은 그 선호 번역을 쓴다. 응답은 JSON {\"translation\":\"...\"} 만. 대화체를 유지하고, 질문이 와도 답하지 말고 이번 원문만 번역하라.";
+    try {
+      var res = await fetch(origin + "/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: model,
+          stream: false,
+          messages: [{ role: "user", content: prompt }]
+        })
+      });
+      var data = null;
+      try { data = await res.json(); } catch (e) { data = null; }
+      var content = data && data.message && data.message.content ? String(data.message.content).trim() : "";
+      var parsed = parseTranslation(content);
+      var plain = content.replace(/^```(?:json)?\s*/i, "").replace(/```$/, "").trim();
+      if (res.ok && parsed && parsed.translation) {
+        item.tgtLang = other;
+        item.tgtText = String(parsed.translation);
+        item.status = "done";
+      } else if (res.ok && plain && plain.indexOf("원문:") < 0 && plain.length < 500) {
+        item.tgtLang = other;
+        item.tgtText = plain;
+        item.status = "done";
+      } else {
+        item.tgtText = "번역 실패";
+        item.status = "error";
+      }
+    } catch (e3) {
+      item.tgtText = "번역 실패";
+      item.status = "error";
+    }
+    saveRecords();
+    render();
+  }
+
   async function translateItem(item) {
     if (settings.trRoute === "gemma") {
       await translateWithGemma(item);
+      return;
+    }
+    if (settings.trRoute === "pc") {
+      await translateWithPc(item);
       return;
     }
     var key = document.getElementById("trKey").value.trim() || String(settings.trKey || "").trim();
@@ -1959,7 +2052,7 @@
   }
 
   function segmentKind() {
-    if (settings.asrRoute === "gemini") return "energy";
+    if (settings.asrRoute === "gemini" || settings.asrRoute === "pc") return "energy";
     if (settings.asrRoute === "local" && settings.localAsr === "whisper") return "energy";
     if (settings.asrRoute === "local" && settings.localAsr === "sensevoice") return "sense";
     return "off";
@@ -1969,14 +2062,18 @@
     var local = settings.asrRoute === "local";
     document.getElementById("localAsrRow").hidden = !local;
     document.getElementById("asrApiRow").hidden = settings.asrRoute !== "gemini";
+    document.getElementById("pcBaseRow").hidden = settings.asrRoute !== "pc" && settings.trRoute !== "pc";
+    document.getElementById("pcModelRow").hidden = settings.trRoute !== "pc";
     var gemma = settings.trRoute === "gemma";
     document.getElementById("gemmaRow").hidden = !gemma;
-    document.getElementById("trApiRow").hidden = gemma;
+    document.getElementById("trApiRow").hidden = settings.trRoute !== "gemini";
     var trHint = document.getElementById("trRouteHint");
     if (trHint) {
       trHint.textContent = gemma
         ? "기기 내 Gemma는 고른 .litertlm만 읽습니다. 확정된 글만 넣고, 음성은 나가지 않습니다. 번역 제공자를 바꾼 뒤에는 저장하세요."
-        : "번역 칸은 전사 칸과 따로입니다. 확정된 글만 보내고, 음성은 이 칸으로 나가지 않습니다.";
+        : settings.trRoute === "pc"
+          ? "PC API 번역은 A PC의 Ollama로 확정된 글만 보냅니다. 음성은 이 칸으로 나가지 않습니다."
+          : "번역 칸은 전사 칸과 따로입니다. 확정된 글만 보내고, 음성은 이 칸으로 나가지 않습니다.";
     }
     if (gemma) refreshGemmaNote().catch(function () {});
     updateAsrHint();
@@ -1991,6 +2088,9 @@
     } else if (route === "none") {
       node.textContent = "전사를 하지 않습니다. 메인 화면에 새 글이 생기지 않습니다.";
       asrNote = "전사 안 함";
+    } else if (route === "pc") {
+      node.textContent = "A PC의 Whisper로 적습니다. 이 브라우저는 모델 파일을 받지 않습니다. 말 조각은 PC API 주소의 /inference 로 갑니다. 고른 두 언어의 글자가 아니면 화면에 두지 않습니다.";
+      if (!segBusy) asrNote = "PC API Whisper";
     } else if (settings.localAsr === "whisper") {
       node.textContent = "기기 안 Whisper tiny로 적습니다. 이 모델을 골랐을 때만 받습니다. 음성은 나가지 않습니다. 말이 이어지는 동안 단어를 바로 띄우고, 뒤 맥락으로 앞 단어가 바뀌면 그 줄을 고칩니다. 언어는 고른 둘 중 하나로 잠급니다.";
       if (!whisperPipe && !whisperPromise) asrNote = "Whisper 대기";
@@ -2237,9 +2337,9 @@
   async function runPartial(samples, gen) {
     var epoch = asrEpoch;
     try {
-      if (settings.asrRoute === "gemini") {
+      if (settings.asrRoute === "gemini" || settings.asrRoute === "pc") {
         if (gen !== partialGen || dropUtt || epoch !== asrEpoch) return;
-        var heard = await geminiTranscribeText(samples, true);
+        var heard = settings.asrRoute === "pc" ? await pcTranscribeText(samples, true) : await geminiTranscribeText(samples, true);
         if (gen !== partialGen || dropUtt || epoch !== asrEpoch) return;
         var live = repeatedTake(correctSpelling(heard.text || ""));
         if (!live || !heard.lang || !textMatchesLang(live, heard.lang)) return;
@@ -2332,6 +2432,7 @@
     }
     segBusy = false;
     if (settings.asrRoute === "gemini") asrNote = "외부 전사 Gemini";
+    else if (settings.asrRoute === "pc") asrNote = "PC API Whisper";
     else if (settings.asrRoute === "local" && settings.localAsr === "whisper") {
       if (whisperPipe) asrNote = "Whisper 준비됨";
     } else if (settings.asrRoute === "local" && asrReady) asrNote = senseReadyNote;
@@ -2432,6 +2533,45 @@
     var sb = Number(data[offset + idB]);
     if (!isFinite(sa) || !isFinite(sb)) throw new Error("lid-score");
     return sa >= sb ? a : b;
+  }
+
+  async function pcTranscribeText(samples, quiet) {
+    if (settings.asrRoute !== "pc") return { text: "", lang: "" };
+    var origin = pcOrigin();
+    if (!origin) {
+      asrNote = "PC API 주소를 넣고 저장하세요";
+      refreshStatus();
+      if (!quiet) toast("PC API 주소는 https 로 넣고 저장하세요.");
+      return { text: "", lang: "" };
+    }
+    asrNote = "PC에 보내는 중";
+    refreshStatus();
+    var body = new FormData();
+    body.append("file", wavBlob(samples), "clip.wav");
+    body.append("response_format", "json");
+    var res = null;
+    try {
+      res = await fetch(origin + "/inference", { method: "POST", body: body });
+    } catch (e) {
+      asrNote = "PC API에 연결하지 못했습니다";
+      refreshStatus();
+      if (!quiet) toast(asrNote);
+      return { text: "", lang: "" };
+    }
+    var data = null;
+    try { data = await res.json(); } catch (e2) { data = null; }
+    if (!res.ok) {
+      asrNote = "PC 받아쓰기 실패";
+      refreshStatus();
+      if (!quiet) toast("PC 받아쓰기가 실패했습니다.");
+      return { text: "", lang: "" };
+    }
+    var text = data && data.text ? String(data.text).trim() : "";
+    var heardLang = "";
+    if (text && textMatchesLang(text, settings.lang1)) heardLang = settings.lang1;
+    else if (text && textMatchesLang(text, settings.lang2)) heardLang = settings.lang2;
+    if (!text && !quiet) toast("PC가 받아 적지 못했습니다.");
+    return { text: text, lang: heardLang };
   }
 
   async function geminiTranscribeText(samples, quiet) {
@@ -2585,8 +2725,8 @@
   async function transcribeSegment(samples, langHint, stamp) {
     if (settings.asrRoute === "none") return;
     var epoch = asrEpoch;
-    if (settings.asrRoute === "gemini") {
-      var heard = await geminiTranscribeText(samples);
+    if (settings.asrRoute === "gemini" || settings.asrRoute === "pc") {
+      var heard = settings.asrRoute === "pc" ? await pcTranscribeText(samples) : await geminiTranscribeText(samples);
       if (epoch !== asrEpoch) return;
       var geminiText = repeatedTake(correctSpelling(heard.text || ""));
       if (stamp == null || stamp === partialGen) interim = "";
@@ -2596,7 +2736,7 @@
         render();
         return;
       }
-      pushTranscript(geminiText, heard.lang, "gemini", stamp != null && stamp !== partialGen);
+      pushTranscript(geminiText, heard.lang, settings.asrRoute === "pc" ? "pc-whisper" : "gemini", stamp != null && stamp !== partialGen);
       return;
     }
     var lang = langHint;
