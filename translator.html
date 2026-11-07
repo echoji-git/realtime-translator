@@ -1957,6 +1957,12 @@
     return { ok: res.ok, content: content };
   }
 
+  function pcTranslationOk(text, lang) {
+    if (!text || !textMatchesLang(text, lang)) return false;
+    if (text.indexOf("이번 회의") >= 0 || text.indexOf("확정된 원문") >= 0) return false;
+    return true;
+  }
+
   function pcTranslationText(content) {
     var parsed = parseTranslation(content);
     if (parsed && parsed.translation) return String(parsed.translation).trim();
@@ -1978,18 +1984,17 @@
     var other = item.srcLang === settings.lang1 ? settings.lang2 : settings.lang1;
     item.tgtLang = other;
     var targetName = langName(other);
-    var first = "Translate into " + targetName + " only. Source language: " + langName(item.srcLang) + ". Do not use Chinese characters unless the target language is Chinese. Do not answer the sentence. Translate it.\n" +
-      glossaryBlock() + "\n" + recentSourceBlock(item.id) + "\nSource:\n" + item.srcText +
-      "\nReply with JSON {\"translation\":\"...\"} only.";
+    var first = "Translate into " + targetName + " only. Use that language's normal writing. Do not use Chinese characters unless the target language is Chinese. Do not repeat the source.\n" +
+      glossaryBlock() + "\nSource:\n" + item.srcText + "\nReply with the translation only.";
     var second = "Translate into " + targetName + " only. Use that language's normal writing. Do not repeat the source and do not use another language.\n" + item.srcText;
     try {
       var firstReply = await pcChat(origin, model, first);
       var text = pcTranslationText(firstReply.content);
-      if (!firstReply.ok || !text || !textMatchesLang(text, other)) {
+      if (!firstReply.ok || !pcTranslationOk(text, other)) {
         var secondReply = await pcChat(origin, model, second);
         text = pcTranslationText(secondReply.content);
       }
-      if (text && textMatchesLang(text, other)) {
+      if (pcTranslationOk(text, other)) {
         item.tgtLang = other;
         item.tgtText = text;
         item.status = "done";
