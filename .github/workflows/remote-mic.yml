@@ -1,0 +1,110 @@
+name: remote-mic
+on:
+  workflow_dispatch:
+    inputs:
+      door:
+        description: temporary https origin
+        required: true
+        type: string
+jobs:
+  mic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: make speech and browser
+        run: |
+          set -e
+          sudo apt-get update
+          sudo apt-get install -y espeak-ng ffmpeg
+          espeak-ng -v en-us "Please explain this more clearly while I listen." -w /tmp/speech.wav
+          ffmpeg -y -i /tmp/speech.wav -af apad=pad_dur=2 -ar 48000 -ac 2 /tmp/mic.wav
+          curl -fsS https://api.ipify.org | tee /tmp/runner-ip.txt
+          echo
+          npm install puppeteer
+      - name: open the page and record
+        env:
+          DOOR: ${{ inputs.door }}
+        run: |
+          set -e
+          export RUNNER_IP="$(cat /tmp/runner-ip.txt)"
+          node <<'EOF'
+          const puppeteer = require('puppeteer');
+          const door = process.env.DOOR || '';
+          const ip = (process.env.RUNNER_IP || '').trim();
+          console.log('runner-ip', ip);
+          if (!door.startsWith('https://') || ip === '49.161.172.34') {
+            console.error('bad-client', ip, door.startsWith('https://'));
+            process.exit(1);
+          }
+          (async () => {
+            const browser = await puppeteer.launch({
+              headless: true,
+              args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--use-fake-ui-for-media-stream',
+                '--use-fake-device-for-media-stream',
+                '--use-file-for-fake-audio-capture=/tmp/mic.wav',
+                '--autoplay-policy=no-user-gesture-required'
+              ]
+            });
+            const page = await browser.newPage();
+            const hits = [];
+            page.on('console', (msg) => console.log('console', msg.type(), msg.text().slice(0, 240)));
+            page.on('pageerror', (err) => console.log('pageerror', String(err).slice(0, 240)));
+            page.on('request', (req) => {
+              const u = req.url().split('?')[0];
+              if (u.includes('/inference') || u.includes('/api/chat') || u.includes('generativelanguage') || u.includes('huggingface.co')) {
+                hits.push(req.method() + ' ' + u);
+              }
+            });
+            await page.goto('https://echoji-git.github.io/realtime-translator/translator.html', { waitUntil: 'domcontentloaded', timeout: 60000 });
+            await page.evaluate((base) => {
+              const raw = localStorage.getItem('rtb.settings.v1');
+              const s = raw ? JSON.parse(raw) : {};
+              s.asrRoute = 'pc';
+              s.trRoute = 'pc';
+              s.pcBase = base;
+              s.pcModel = 'qwen2.5:1.5b';
+              s.lang1 = 'ko';
+              s.lang2 = 'en';
+              s.segment = 3;
+              localStorage.setItem('rtb.settings.v1', JSON.stringify(s));
+            }, door);
+            await page.reload({ waitUntil: 'domcontentloaded' });
+            await page.click('#micBtn');
+            const started = Date.now();
+            let text = '';
+            let status = '';
+            let mic = '';
+            while (Date.now() - started < 120000) {
+              await new Promise((r) => setTimeout(r, 3000));
+              const state = await page.evaluate(() => ({
+                text: (document.getElementById('transcript') || {}).innerText || '',
+                status: (document.getElementById('statusText') || {}).textContent || '',
+                mic: (document.getElementById('micBtn') || {}).textContent || ''
+              }));
+              text = state.text;
+              status = state.status;
+              mic = state.mic;
+              console.log('tick', Math.round((Date.now() - started) / 1000), mic, status.slice(0, 100), text.slice(0, 140).replace(/\n/g, ' | '));
+              const chat = hits.some((h) => h.includes('/api/chat'));
+              if (chat && text && text.indexOf('번역 실패') < 0 && text.indexOf('번역 중') < 0) break;
+            }
+            console.log('HITS');
+            hits.forEach((h) => console.log(h));
+            console.log('MIC', mic);
+            console.log('STATUS', status);
+            console.log('TEXT');
+            console.log(text.slice(0, 1200));
+            try { await page.click('#micBtn'); } catch (e) {}
+            await browser.close();
+            if (!hits.some((h) => h.includes('/inference'))) process.exit(2);
+            if (!hits.some((h) => h.includes('/api/chat'))) process.exit(3);
+            if (!text || text.indexOf('번역 실패') >= 0) process.exit(4);
+            process.exit(0);
+          })().catch((err) => {
+            console.error(err);
+            process.exit(1);
+          });
+          EOF
