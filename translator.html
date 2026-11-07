@@ -33,8 +33,9 @@
   button { cursor: pointer; }
   #app { height: 100%; display: flex; flex-direction: column; }
   #status {
-    display: flex; align-items: center; gap: 10px;
-    min-height: 44px; padding: 8px 12px;
+    display: flex; align-items: center; gap: 8px;
+    min-height: 36px; padding: 6px 10px;
+    font-size: 13px;
     background: rgba(0, 0, 0, 0.28);
     border-bottom: 1px solid var(--line);
   }
@@ -42,8 +43,9 @@
     background: #1c2c42; border: 1px solid var(--line); color: #fff;
     border-radius: 8px; padding: 6px 10px;
   }
-  #menuBtn { font-size: 18px; line-height: 1; }
-  #statusText { color: var(--muted); font-size: 13px; }
+  #menuBtn { font-size: 16px; line-height: 1; padding: 4px 8px; }
+  #jumpBtn { font-size: 13px; padding: 4px 8px; }
+  #statusText { color: var(--muted); font-size: 12px; }
   #dot { width: 8px; height: 8px; border-radius: 50%; background: #66788c; display: inline-block; }
   #dot.on { background: #3ddc84; }
   #transcript {
@@ -59,14 +61,17 @@
   .meta { color: var(--muted); font-size: 12px; margin-bottom: 2px; }
   #jumpBtn { position: absolute; right: 24px; bottom: 84px; display: none; }
   #controls {
-    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-    padding: 10px 12px; background: rgba(0, 0, 0, 0.35);
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 8px 10px; background: rgba(0, 0, 0, 0.35);
     border-top: 1px solid var(--line);
+    font-size: 13px;
   }
+  #controls .bar-btn { font-size: 13px; padding: 4px 8px; }
+  #clock, #seekLabel { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .bar-btn.primary { background: #1f4b86; }
   .bar-btn.active { outline: 2px solid var(--accent); }
   #vol, #seek { width: 110px; }
-  #volLabel, #fileTime { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  #volLabel, #fileTime { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
   #meterWrap { flex: 1; min-width: 120px; height: 10px; background: #243246; border-radius: 99px; overflow: hidden; }
   #meter { height: 100%; width: 0%; background: #3ddc84; }
   #backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; z-index: 2; }
@@ -327,7 +332,6 @@
 <div id="app">
   <header id="status">
     <button id="menuBtn" type="button" aria-label="설정 열기">☰</button>
-    <button id="apiBtn" class="bar-btn" type="button">API 설정</button>
     <span id="dot" aria-hidden="true"></span>
     <span id="statusText">대기 · SenseVoice 대기</span>
   </header>
@@ -3029,9 +3033,6 @@
 
   document.getElementById("menuBtn").addEventListener("click", function () {
     openSidebar(!el.sidebar.classList.contains("open"));
-  });
-  document.getElementById("apiBtn").addEventListener("click", function () {
-    openSidebar(true, "models");
   });
   document.querySelectorAll("#sidebar .fold-btn").forEach(function (btn) {
     btn.addEventListener("click", function () {
