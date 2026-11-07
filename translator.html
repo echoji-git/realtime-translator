@@ -174,21 +174,30 @@
         <label for="trRoute">번역 제공자</label>
         <select id="trRoute">
           <option value="gemini">Gemini 텍스트</option>
+          <option value="gemma">기기 내 Gemma</option>
         </select>
-        <p class="hint">번역 칸은 전사 칸과 따로입니다. 확정된 글만 보내고, 음성은 이 칸으로 나가지 않습니다.</p>
-        <label for="trKey">번역 API 키</label>
-        <input id="trKey" type="password" autocomplete="off" spellcheck="false" placeholder="이 브라우저에만 저장">
-        <label for="trModel">번역 모델</label>
-        <select id="trModel"></select>
-        <div id="trNewModelRow" hidden>
-          <label for="trNewModel">새 모델 ID</label>
-          <input id="trNewModel" type="text" autocomplete="off" spellcheck="false" placeholder="직접 입력">
-          <button id="trNewModelBtn" class="bar-btn" type="button">이 ID를 목록에 넣기</button>
+        <p id="trRouteHint" class="hint">번역 칸은 전사 칸과 따로입니다. 확정된 글만 보내고, 음성은 이 칸으로 나가지 않습니다.</p>
+        <div id="gemmaRow" hidden>
+          <p class="hint">회의 번역은 이미 받아 둔 Gemma 4 E2B 가중치를 고릅니다. Google AI Edge Gallery가 받는 파일 이름은 gemma-4-E2B-it.litertlm입니다. 그 파일은 앱 전용 폴더에 있어 이 페이지가 그 폴더를 바로 열지는 못합니다. 파일 고르기에서 그 파일이 보이면 한 번 고릅니다. 이 브라우저가 그 선택을 기억하면 다음에도 같은 파일을 씁니다. 음성은 나가지 않습니다. 문서에 적힌 브라우저용 파일은 이름이 다른 더 작은 파일이라, 앱이 받은 파일이 여기서 열리지 않을 수 있습니다.</p>
+          <button id="gemmaPickBtn" class="bar-btn" type="button">Gemma 가중치 고르기</button>
+          <input id="gemmaFile" type="file" accept=".litertlm,application/octet-stream" hidden>
+          <p id="gemmaFileNote" class="hint">아직 고른 가중치가 없습니다.</p>
         </div>
-        <p class="hint">목록을 불러오지 못해도 이전에 넣은 모델 ID는 고를 수 있습니다. 새 모델 ID를 고르면 직접 넣을 수 있습니다.</p>
-        <button id="trModelsBtn" class="bar-btn" type="button">번역 모델 목록</button>
-        <button id="checkKeyBtn" class="bar-btn" type="button">번역 키 확인</button>
-        <p id="apiCheck" class="hint"></p>
+        <div id="trApiRow">
+          <label for="trKey">번역 API 키</label>
+          <input id="trKey" type="password" autocomplete="off" spellcheck="false" placeholder="이 브라우저에만 저장">
+          <label for="trModel">번역 모델</label>
+          <select id="trModel"></select>
+          <div id="trNewModelRow" hidden>
+            <label for="trNewModel">새 모델 ID</label>
+            <input id="trNewModel" type="text" autocomplete="off" spellcheck="false" placeholder="직접 입력">
+            <button id="trNewModelBtn" class="bar-btn" type="button">이 ID를 목록에 넣기</button>
+          </div>
+          <p class="hint">목록을 불러오지 못해도 이전에 넣은 모델 ID는 고를 수 있습니다. 새 모델 ID를 고르면 직접 넣을 수 있습니다.</p>
+          <button id="trModelsBtn" class="bar-btn" type="button">번역 모델 목록</button>
+          <button id="checkKeyBtn" class="bar-btn" type="button">번역 키 확인</button>
+          <p id="apiCheck" class="hint"></p>
+        </div>
         <label for="glossary">용어집</label>
         <textarea id="glossary" placeholder="웨이퍼=wafer | 웨이파, 웨퍼"></textarea>
         <p class="hint">한 줄에 원어=선호 번역입니다. 별칭은 막대 뒤에 쉼표로 적습니다. 지난 회의 전사문이 없으면 비워 둡니다. 번역 요청과 외부 전사에는 이 표와, 이번 회의에서 방금 확정된 원문 최대 3개를 붙입니다. 기기 내 모델은 별칭을 원어 표기로만 고칩니다.</p>
@@ -439,6 +448,27 @@
   var dropUtt = false;
   var uttMic = false;
   var ASR_BASE = "https://huggingface.co/jpssff/sherpa-onnx-sense-voice/resolve/main/";
+  var SENSE_DIR = "sensevoice-int8-v1";
+  var SENSE_FILES = [
+    ["sherpa-onnx-asr.js", 53867],
+    ["sherpa-onnx-vad.js", 7772],
+    ["sherpa-onnx-wasm-main-vad-asr.js", 95318],
+    ["sherpa-onnx-wasm-main-vad-asr.wasm", 11869449],
+    ["sherpa-onnx-wasm-main-vad-asr.data", 238075295]
+  ];
+  var senseUrls = null;
+  var senseFromStore = false;
+  var senseReadyNote = "SenseVoice 준비됨";
+  var gemmaHandle = null;
+  var gemmaEngine = null;
+  var gemmaPromise = null;
+  var gemmaChain = Promise.resolve();
+  var gemmaLoaded = false;
+  var gemmaSource = null;
+  var gemmaPerm = "";
+  var LITERT_URL = "https://cdn.jsdelivr.net/npm/@litert-lm/core/+esm";
+  var GEMMA_DB = "rtb.gemma.v1";
+  var GEMMA_DIR = "gemma-weight-v1";
 
   var el = {
     sidebar: document.getElementById("sidebar"),
@@ -483,7 +513,7 @@
     }
     if (s.asrRoute !== "local" && s.asrRoute !== "gemini" && s.asrRoute !== "none") s.asrRoute = "local";
     if (s.localAsr !== "whisper") s.localAsr = "sensevoice";
-    if (s.trRoute !== "gemini") s.trRoute = "gemini";
+    if (s.trRoute !== "gemini" && s.trRoute !== "gemma") s.trRoute = "gemini";
     if (!s.trKey && s.geminiKey) s.trKey = s.geminiKey;
     if (!s.trModel && s.geminiModel) s.trModel = s.geminiModel;
     if (s.asrRoute === "gemini") {
@@ -814,6 +844,7 @@
       resetAsrAudio();
       syncEnginePanels();
     }
+    if (id === "trRoute") syncEnginePanels();
     applyTheme();
     updateSaveState();
     if (id === "displayMode" || id === "lang1" || id === "lang2" || id === "maxItems") render();
@@ -1559,7 +1590,319 @@
     try { return JSON.parse(match[0]); } catch (e2) { return null; }
   }
 
+  function gemmaText(response) {
+    if (!response) return "";
+    if (typeof response === "string") return response;
+    var content = response.content || response.contents || [];
+    if (typeof content === "string") return content;
+    var parts = [];
+    for (var i = 0; i < content.length; i++) {
+      var item = content[i];
+      if (!item) continue;
+      if (typeof item === "string") parts.push(item);
+      else if (item.text) parts.push(item.text);
+    }
+    return parts.join("");
+  }
+
+  function gemmaSizeNote(file) {
+    var note = file.name + " · " + file.size + "바이트.";
+    if (file.size === 2588147712) note += " 앱이 받는 Gemma 4 E2B와 크기가 같습니다.";
+    else if (file.size === 2008432640) note += " 문서에 적힌 브라우저용 E2B와 크기가 같습니다. 앱이 받는 파일과는 다릅니다.";
+    else if (file.size === 3659530240) note += " 앱이 받는 Gemma 4 E4B와 크기가 같습니다. 회의 자막에는 E2B를 씁니다.";
+    return note;
+  }
+
+  function gemmaErrorText(error) {
+    var code = error && error.message ? String(error.message) : "";
+    if (code === "no-webgpu") return "이 브라우저는 WebGPU가 없어 Gemma를 열지 못합니다.";
+    if (code === "gemma-file") return "Gemma 가중치를 한 번 고르세요.";
+    if (code === "gemma-permission") return "Gemma 가중치 고르기에서 기억한 파일을 다시 허용하세요.";
+    if (code === "gemma-sdk") return "Gemma 실행 파일을 받지 못했습니다.";
+    if (code === "empty") return "Gemma가 번역 문장을 만들지 못했습니다.";
+    var detail = publicError(code, "");
+    if (detail && detail !== "empty") return "Gemma를 열지 못했습니다. 앱이 받은 파일은 브라우저용 파일과 다를 수 있습니다. " + detail;
+    return "Gemma를 열지 못했습니다. 앱이 받은 파일은 브라우저용 파일과 다를 수 있습니다.";
+  }
+
+  function openGemmaDb() {
+    return new Promise(function (resolve, reject) {
+      var req = indexedDB.open(GEMMA_DB, 1);
+      req.onupgradeneeded = function () {
+        if (!req.result.objectStoreNames.contains("kv")) req.result.createObjectStore("kv");
+      };
+      req.onsuccess = function () { resolve(req.result); };
+      req.onerror = function () { reject(req.error); };
+    });
+  }
+
+  function idbGet(key) {
+    return openGemmaDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction("kv", "readonly");
+        var q = tx.objectStore("kv").get(key);
+        q.onsuccess = function () { resolve(q.result); };
+        q.onerror = function () { reject(q.error); };
+      });
+    });
+  }
+
+  function idbSet(key, value) {
+    return openGemmaDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction("kv", "readwrite");
+        tx.objectStore("kv").put(value, key);
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { reject(tx.error); };
+      });
+    });
+  }
+
+  async function loadGemmaMemory() {
+    if (gemmaLoaded) return;
+    gemmaLoaded = true;
+    try {
+      gemmaSource = await idbGet("source");
+      var handle = await idbGet("handle");
+      if (handle && handle.getFile) gemmaHandle = handle;
+    } catch (e) {
+      gemmaSource = null;
+    }
+  }
+
+  function dropGemmaEngine() {
+    var engine = gemmaEngine;
+    gemmaEngine = null;
+    gemmaPromise = null;
+    if (engine && engine.delete) engine.delete().catch(function () {});
+  }
+
+  async function opfsDir(name) {
+    if (!navigator.storage || !navigator.storage.getDirectory) throw new Error("no-opfs");
+    var root = await navigator.storage.getDirectory();
+    return root.getDirectoryHandle(name, { create: true });
+  }
+
+  async function readOpfs(dir, name) {
+    try {
+      return await (await dir.getFileHandle(name)).getFile();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function writeStreamFile(dir, name, body, total, onProgress) {
+    var handle = await dir.getFileHandle(name, { create: true });
+    var writable = await handle.createWritable();
+    var reader = body.getReader();
+    var loaded = 0;
+    try {
+      while (true) {
+        var step = await reader.read();
+        if (step.done) break;
+        await writable.write(step.value);
+        loaded += step.value.byteLength;
+        if (onProgress) onProgress(loaded, total);
+      }
+      await writable.close();
+    } catch (e) {
+      try { await writable.abort(); } catch (e2) {}
+      throw e;
+    }
+    return handle.getFile();
+  }
+
+  async function rememberPersist() {
+    if (navigator.storage && navigator.storage.persist) {
+      try { await navigator.storage.persist(); } catch (e) {}
+    }
+  }
+
+  async function rememberGemmaHandle(handle, file) {
+    gemmaHandle = handle;
+    gemmaSource = { type: "handle", pickedName: file.name, size: file.size };
+    gemmaLoaded = true;
+    gemmaPerm = "granted";
+    try {
+      await idbSet("handle", handle);
+      await idbSet("source", gemmaSource);
+      await rememberPersist();
+    } catch (e) {
+      toast("이 브라우저는 파일 선택을 다음 방문까지 기억하지 못합니다.");
+    }
+  }
+
+  async function refreshGemmaNote() {
+    var note = document.getElementById("gemmaFileNote");
+    var btn = document.getElementById("gemmaPickBtn");
+    if (!note || !btn) return;
+    await loadGemmaMemory();
+    gemmaPerm = "";
+    if (gemmaHandle && gemmaHandle.queryPermission) {
+      try { gemmaPerm = await gemmaHandle.queryPermission({ mode: "read" }); } catch (e) { gemmaPerm = ""; }
+    }
+    if (gemmaHandle && gemmaPerm === "granted") {
+      try {
+        var file = await gemmaHandle.getFile();
+        note.textContent = gemmaSizeNote(file) + " 다음에도 이 파일을 씁니다.";
+      } catch (e2) {
+        note.textContent = "기억한 Gemma 파일을 열지 못했습니다. 다시 고르세요.";
+      }
+      btn.textContent = "다른 가중치 고르기";
+      return;
+    }
+    if (gemmaHandle) {
+      note.textContent = "이전에 고른 Gemma 파일이 있습니다. 다시 허용하면 그 파일을 씁니다.";
+      btn.textContent = "기억한 Gemma 다시 허용";
+      return;
+    }
+    if (gemmaSource && gemmaSource.type === "opfs") {
+      note.textContent = (gemmaSource.pickedName || "가중치") + " 를 이 사이트 저장소에 두었습니다. " + gemmaSource.size + "바이트. 원본과 같은 크기만큼 저장 공간을 더 씁니다.";
+      btn.textContent = "다른 가중치 고르기";
+      return;
+    }
+    note.textContent = "아직 고른 가중치가 없습니다.";
+    btn.textContent = "Gemma 가중치 고르기";
+  }
+
+  async function gemmaFileForUse() {
+    await loadGemmaMemory();
+    if (gemmaSource && gemmaSource.type === "opfs") {
+      var dir = await opfsDir(GEMMA_DIR);
+      var stored = await readOpfs(dir, gemmaSource.fileName);
+      if (!stored || stored.size !== gemmaSource.size) throw new Error("gemma-file");
+      return stored;
+    }
+    if (!gemmaHandle || !gemmaHandle.getFile) throw new Error("gemma-file");
+    var perm = "granted";
+    if (gemmaHandle.queryPermission) perm = await gemmaHandle.queryPermission({ mode: "read" });
+    if (perm !== "granted") throw new Error("gemma-permission");
+    return gemmaHandle.getFile();
+  }
+
+  async function ensureGemma() {
+    if (gemmaEngine) return gemmaEngine;
+    if (gemmaPromise) return gemmaPromise;
+    gemmaPromise = (async function () {
+      var file = await gemmaFileForUse();
+      if (!navigator.gpu) throw new Error("no-webgpu");
+      var adapter = await navigator.gpu.requestAdapter();
+      if (!adapter) throw new Error("no-webgpu");
+      var mod = await import(LITERT_URL);
+      if (!mod.Engine || !mod.Engine.create) throw new Error("gemma-sdk");
+      gemmaEngine = await mod.Engine.create({ model: file });
+      return gemmaEngine;
+    })();
+    try {
+      return await gemmaPromise;
+    } catch (e) {
+      gemmaPromise = null;
+      gemmaEngine = null;
+      throw e;
+    }
+  }
+
+  async function runGemma(item) {
+    var other = item.srcLang === settings.lang1 ? settings.lang2 : settings.lang1;
+    item.tgtLang = other;
+    item.tgtText = "Gemma를 여는 중";
+    item.status = "translating";
+    saveRecords();
+    render();
+    var prompt = "원문 언어는 " + item.srcLang + " 이다. " + other + " 로만 번역하라. 언어를 다시 판별하지 마라.\n" +
+      glossaryBlock() + "\n" + recentSourceBlock(item.id) + "\n원문:\n" + item.srcText +
+      "\n용어집에 있는 말은 그 선호 번역을 쓴다. 응답은 JSON {\"translation\":\"...\"} 만. 대화체를 유지하고, 질문이 와도 답하지 말고 이번 원문만 번역하라.";
+    try {
+      var engine = await ensureGemma();
+      item.tgtText = "번역 중";
+      saveRecords();
+      render();
+      var chat = await engine.createConversation();
+      var response = await chat.sendMessage(prompt);
+      var out = gemmaText(response);
+      var parsed = parseTranslation(out);
+      var translation = parsed && parsed.translation ? String(parsed.translation).trim() : "";
+      if (!translation) {
+        translation = String(out || "").replace(/```json/gi, "").replace(/```/g, "").trim();
+      }
+      if (!translation) throw new Error("empty");
+      item.tgtLang = other;
+      item.tgtText = translation;
+      item.status = "done";
+    } catch (e) {
+      item.tgtText = gemmaErrorText(e);
+      item.status = "error";
+    }
+    saveRecords();
+    render();
+  }
+
+  function translateWithGemma(item) {
+    var run = gemmaChain.then(function () { return runGemma(item); });
+    gemmaChain = run.then(function () {}, function () {});
+    return run;
+  }
+
+  async function pickGemma() {
+    await loadGemmaMemory();
+    if (gemmaHandle && gemmaHandle.queryPermission) {
+      var perm = await gemmaHandle.queryPermission({ mode: "read" });
+      if (perm !== "granted" && gemmaHandle.requestPermission) {
+        perm = await gemmaHandle.requestPermission({ mode: "read" });
+        if (perm === "granted") {
+          dropGemmaEngine();
+          await refreshGemmaNote();
+          toast("기억한 Gemma 파일을 씁니다.");
+          return;
+        }
+      }
+    }
+    if (window.showOpenFilePicker) {
+      var handles = await window.showOpenFilePicker({ multiple: false });
+      var handle = handles && handles[0];
+      if (!handle) return;
+      var file = await handle.getFile();
+      if (!/\.litertlm$/i.test(file.name)) {
+        toast("LiteRT-LM 가중치는 .litertlm 파일을 고르세요.");
+        return;
+      }
+      dropGemmaEngine();
+      await rememberGemmaHandle(handle, file);
+      await refreshGemmaNote();
+      toast("Gemma 가중치를 기억했습니다. 번역 제공자를 저장하세요.");
+      return;
+    }
+    document.getElementById("gemmaFile").click();
+  }
+
+  async function keepGemmaCopy(file) {
+    if (!file || !/\.litertlm$/i.test(file.name)) {
+      toast("LiteRT-LM 가중치는 .litertlm 파일을 고르세요.");
+      return;
+    }
+    var note = document.getElementById("gemmaFileNote");
+    if (note) note.textContent = "가중치를 이 사이트 저장소에 복사하는 중";
+    var dir = await opfsDir(GEMMA_DIR);
+    var stored = await writeStreamFile(dir, "model.litertlm", file.stream(), file.size, function (loaded, total) {
+      if (!note || !total) return;
+      note.textContent = "가중치를 이 사이트 저장소에 복사하는 중 " + Math.min(100, Math.floor(loaded * 100 / total)) + "%";
+    });
+    if (stored.size !== file.size) throw new Error("gemma-copy");
+    gemmaHandle = null;
+    gemmaSource = { type: "opfs", fileName: "model.litertlm", pickedName: file.name, size: file.size };
+    gemmaLoaded = true;
+    dropGemmaEngine();
+    await idbSet("source", gemmaSource);
+    await rememberPersist();
+    await refreshGemmaNote();
+    toast("Gemma 가중치를 이 브라우저에 두었습니다. 원본과 같은 크기만큼 저장 공간을 더 씁니다.");
+  }
+
   async function translateItem(item) {
+    if (settings.trRoute === "gemma") {
+      await translateWithGemma(item);
+      return;
+    }
     var key = document.getElementById("trKey").value.trim() || String(settings.trKey || "").trim();
     var model = chosenModelId("tr") || modelIdOf(settings.trModel);
     if (!key || !model || !/^[A-Za-z0-9._-]+$/.test(model)) {
@@ -1622,6 +1965,16 @@
     var local = settings.asrRoute === "local";
     document.getElementById("localAsrRow").hidden = !local;
     document.getElementById("asrApiRow").hidden = settings.asrRoute !== "gemini";
+    var gemma = settings.trRoute === "gemma";
+    document.getElementById("gemmaRow").hidden = !gemma;
+    document.getElementById("trApiRow").hidden = gemma;
+    var trHint = document.getElementById("trRouteHint");
+    if (trHint) {
+      trHint.textContent = gemma
+        ? "기기 내 Gemma는 고른 .litertlm만 읽습니다. 확정된 글만 넣고, 음성은 나가지 않습니다. 번역 제공자를 바꾼 뒤에는 저장하세요."
+        : "번역 칸은 전사 칸과 따로입니다. 확정된 글만 보내고, 음성은 이 칸으로 나가지 않습니다.";
+    }
+    if (gemma) refreshGemmaNote().catch(function () {});
     updateAsrHint();
   }
 
@@ -1638,7 +1991,7 @@
       node.textContent = "기기 안 Whisper tiny로 적습니다. 이 모델을 골랐을 때만 받습니다. 음성은 나가지 않습니다. 말이 이어지는 동안 단어를 바로 띄우고, 뒤 맥락으로 앞 단어가 바뀌면 그 줄을 고칩니다. 언어는 고른 둘 중 하나로 잠급니다.";
       if (!whisperPipe && !whisperPromise) asrNote = "Whisper 대기";
     } else {
-      node.textContent = "기기 안 SenseVoice로 적습니다. 이 모델을 골랐을 때만 받습니다. Whisper는 받지 않습니다. 음성은 나가지 않습니다. 말이 이어지는 동안 단어를 바로 띄우고, 뒤 맥락으로 앞 단어가 바뀌면 그 줄을 고칩니다. 다섯 언어 자동 판별은 쓰지 않습니다.";
+      node.textContent = "기기 안 SenseVoice로 적습니다. 이 모델을 골랐을 때만 받습니다. 처음 받은 파일은 이 브라우저에 남고, 다음부터는 다시 받지 않습니다. 사이트 데이터를 지우면 다시 받습니다. Whisper는 받지 않습니다. 음성은 나가지 않습니다. 말이 이어지는 동안 단어를 바로 띄우고, 뒤 맥락으로 앞 단어가 바뀌면 그 줄을 고칩니다. 다섯 언어 자동 판별은 쓰지 않습니다.";
       if (!asrReady && !asrPromise) asrNote = "SenseVoice 대기";
     }
     var asrApi = document.getElementById("asrApiCheck");
@@ -1977,7 +2330,7 @@
     if (settings.asrRoute === "gemini") asrNote = "외부 전사 Gemini";
     else if (settings.asrRoute === "local" && settings.localAsr === "whisper") {
       if (whisperPipe) asrNote = "Whisper 준비됨";
-    } else if (settings.asrRoute === "local" && asrReady) asrNote = "SenseVoice 준비됨";
+    } else if (settings.asrRoute === "local" && asrReady) asrNote = senseReadyNote;
     refreshStatus();
   }
 
@@ -2403,57 +2756,141 @@
     else if (settings.localAsr === "whisper") ensureWhisper();
   }
 
+  async function senseManifest(dir) {
+    var file = await readOpfs(dir, "sizes.json");
+    if (!file) return {};
+    try { return JSON.parse(await file.text()); } catch (e) { return {}; }
+  }
+
+  async function saveSenseManifest(dir, manifest) {
+    var handle = await dir.getFileHandle("sizes.json", { create: true });
+    var writable = await handle.createWritable();
+    await writable.write(new Blob([JSON.stringify(manifest)], { type: "application/json" }));
+    await writable.close();
+  }
+
+  async function prepareSense() {
+    if (senseUrls) return senseUrls;
+    var dir = await opfsDir(SENSE_DIR);
+    await rememberPersist();
+    var manifest = await senseManifest(dir);
+    var urls = {};
+    var reused = true;
+    for (var i = 0; i < SENSE_FILES.length; i++) {
+      var name = SENSE_FILES[i][0];
+      var expected = manifest[name] || SENSE_FILES[i][1];
+      var file = await readOpfs(dir, name);
+      if (!file || file.size !== expected) {
+        reused = false;
+        var res = await fetch(ASR_BASE + name);
+        if (!res.ok || !res.body) throw new Error("sense-net");
+        var linked = Number(res.headers.get("x-linked-size") || res.headers.get("content-length")) || expected;
+        asrNote = "SenseVoice를 이 브라우저에 받는 중";
+        refreshStatus();
+        file = await writeStreamFile(dir, name, res.body, linked, function (loaded, total) {
+          if (!total) return;
+          if (name.indexOf(".data") < 0 && name.indexOf(".wasm") < 0) return;
+          asrNote = "SenseVoice 받는 중 " + Math.min(100, Math.floor(loaded * 100 / total)) + "%";
+          refreshStatus();
+        });
+        if (linked && file.size !== linked) throw new Error("sense-size");
+        manifest[name] = file.size;
+        await saveSenseManifest(dir, manifest);
+      }
+      urls[name] = URL.createObjectURL(file);
+    }
+    senseFromStore = reused;
+    senseUrls = urls;
+    return urls;
+  }
+
+  function bootSenseModule(urls, resolve, reject) {
+    window.Module = {
+      locateFile: function (path) {
+        var base = String(path || "").split("/").pop().split("?")[0];
+        if (urls && urls[base]) return urls[base];
+        return ASR_BASE + base;
+      },
+      setStatus: function (status) {
+        if (senseFromStore) {
+          asrNote = "받아 둔 SenseVoice를 여는 중";
+          refreshStatus();
+          return;
+        }
+        var text = String(status || "");
+        var match = text.match(/Downloading data\.\.\. \((\d+)\/(\d+)\)/);
+        if (match) {
+          var total = Number(match[2]);
+          var pct = total ? Math.floor(Number(match[1]) * 100 / total) : 0;
+          asrNote = urls ? ("저장된 SenseVoice를 여는 중 " + pct + "%") : ("모델 받는 중 " + pct + "%");
+        } else if (text && text !== "Running...") {
+          asrNote = "전사 준비 중";
+        }
+        refreshStatus();
+      },
+      onRuntimeInitialized: function () {
+        try {
+          bootRecognizer(window.Module);
+          asrReady = true;
+          senseReadyNote = !urls ? "SenseVoice 준비됨" : (senseFromStore ? "SenseVoice 준비됨 · 저장된 파일" : "SenseVoice 준비됨 · 이 브라우저에 저장됨");
+          asrNote = senseReadyNote;
+          releasePending();
+          if (!micStream && el.player && (el.player.paused || el.player.ended)) flushSense();
+          refreshStatus();
+          resolve(true);
+        } catch (e) {
+          asrNote = "전사를 준비하지 못했습니다";
+          var detail = String(e && e.message || e || "").slice(0, 80);
+          if (detail) asrNote += " · " + detail;
+          refreshStatus();
+          toast(asrNote);
+          asrPromise = null;
+          reject(e);
+        }
+      }
+    };
+    var src = function (name) {
+      return urls && urls[name] ? urls[name] : (ASR_BASE + name);
+    };
+    loadScript(src("sherpa-onnx-asr.js")).then(function () {
+      return loadScript(src("sherpa-onnx-vad.js"));
+    }).then(function () {
+      return loadScript(src("sherpa-onnx-wasm-main-vad-asr.js"));
+    }).catch(function () {
+      if (urls) {
+        senseUrls = null;
+        senseFromStore = false;
+        asrNote = "저장된 파일을 열지 못해 다시 받습니다";
+        refreshStatus();
+        bootSenseModule(null, resolve, reject);
+        return;
+      }
+      asrNote = "전사 파일을 받지 못했습니다";
+      refreshStatus();
+      toast(asrNote);
+      asrPromise = null;
+      reject(new Error("load"));
+    });
+  }
+
   function ensureEngine() {
     if (!(settings.asrRoute === "local" && settings.localAsr === "sensevoice")) return Promise.resolve(false);
     if (asrReady) return Promise.resolve(true);
     if (asrPromise) return asrPromise;
-    asrNote = "전사 모델을 받는 중";
+    asrNote = "전사 모델을 확인하는 중";
     refreshStatus();
     asrPromise = new Promise(function (resolve, reject) {
-      window.Module = {
-        locateFile: function (path) { return ASR_BASE + path; },
-        setStatus: function (status) {
-          var text = String(status || "");
-          var match = text.match(/Downloading data\.\.\. \((\d+)\/(\d+)\)/);
-          if (match) {
-            var total = Number(match[2]);
-            var pct = total ? Math.floor(Number(match[1]) * 100 / total) : 0;
-            asrNote = "모델 받는 중 " + pct + "%";
-          } else if (text && text !== "Running...") {
-            asrNote = "전사 준비 중";
-          }
+      prepareSense().then(function (urls) {
+        if (senseFromStore) {
+          asrNote = "받아 둔 SenseVoice를 여는 중";
           refreshStatus();
-        },
-        onRuntimeInitialized: function () {
-          try {
-            bootRecognizer(window.Module);
-            asrReady = true;
-            asrNote = "SenseVoice 준비됨";
-            releasePending();
-            if (!micStream && el.player && (el.player.paused || el.player.ended)) flushSense();
-            refreshStatus();
-            resolve(true);
-          } catch (e) {
-            asrNote = "전사를 준비하지 못했습니다";
-            var detail = String(e && e.message || e || "").slice(0, 80);
-            if (detail) asrNote += " · " + detail;
-            refreshStatus();
-            toast(asrNote);
-            asrPromise = null;
-            reject(e);
-          }
         }
-      };
-      loadScript(ASR_BASE + "sherpa-onnx-asr.js").then(function () {
-        return loadScript(ASR_BASE + "sherpa-onnx-vad.js");
-      }).then(function () {
-        return loadScript(ASR_BASE + "sherpa-onnx-wasm-main-vad-asr.js");
+        bootSenseModule(urls, resolve, reject);
       }).catch(function () {
-        asrNote = "전사 파일을 받지 못했습니다";
+        senseFromStore = false;
+        asrNote = "전사 모델을 받는 중";
         refreshStatus();
-        toast(asrNote);
-        asrPromise = null;
-        reject(new Error("load"));
+        bootSenseModule(null, resolve, reject);
       });
     });
     return asrPromise;
@@ -2806,6 +3243,21 @@
     follow = true;
     el.transcript.scrollTop = el.transcript.scrollHeight;
     el.jump.style.display = "none";
+  });
+
+  document.getElementById("gemmaPickBtn").addEventListener("click", function () {
+    pickGemma().catch(function (e) {
+      if (e && e.name === "AbortError") return;
+      toast("Gemma 가중치를 고르지 못했습니다.");
+    });
+  });
+  document.getElementById("gemmaFile").addEventListener("change", function () {
+    var file = this.files && this.files[0];
+    this.value = "";
+    if (!file) return;
+    keepGemmaCopy(file).catch(function () {
+      toast("Gemma 가중치를 이 브라우저에 두지 못했습니다.");
+    });
   });
 
   bindSettings();
