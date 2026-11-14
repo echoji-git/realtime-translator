@@ -100,7 +100,7 @@ const defaults = await page.evaluate(() => ({
   trSize: document.getElementById("pcTrSize").value,
   hint: document.getElementById("pcModelHint").textContent
 }));
-if (defaults.version.indexOf("v1.033") === -1) throw new Error("version " + defaults.version);
+if (defaults.version.indexOf("v1.04") === -1) throw new Error("version " + defaults.version);
 if (defaults.asr !== "gemini" || defaults.tr !== "gemini") throw new Error("default route " + JSON.stringify(defaults));
 if (!defaults.pcHidden) throw new Error("pc panel should be hidden");
 if (defaults.mic !== "mid" || defaults.engine !== "whisper" || defaults.size !== "base" || defaults.trSize !== "1b") {
@@ -115,6 +115,11 @@ await page.evaluate(() => {
 await page.waitForFunction(() => document.getElementById("sidebar").classList.contains("open") && !document.getElementById("fold-models").hidden);
 await (await page.$("#fold-models")).screenshot({ path: outDir + "/settings-default-v1033.png" });
 await page.select("#asrRoute", "pc");
+const presetDefault = await page.$eval("#pcBasePreset", (node) => node.value);
+if (presetDefault !== "https://desktop-ooi8v89.tail5025b3.ts.net") throw new Error("preset " + presetDefault);
+const customHidden = await page.$eval("#pcBaseCustomRow", (node) => node.hidden);
+if (!customHidden) throw new Error("custom row should start hidden");
+await page.select("#pcBasePreset", "__custom__");
 await page.$eval("#pcBase", (node) => { node.value = "https://pc.example.ts.net"; node.dispatchEvent(new Event("input", { bubbles: true })); });
 await page.$eval("#pcKey", (node) => { node.value = "secret-key"; node.dispatchEvent(new Event("input", { bubbles: true })); });
 await page.waitForFunction(() => document.getElementById("pcSenseNote").textContent === "설치 필요" && !document.getElementById("pcSenseNote").hidden);
@@ -180,8 +185,10 @@ await page.select("#asrRoute", "gemini");
 const hiddenAgain = await page.$eval("#pcPanel", (node) => node.hidden);
 if (!hiddenAgain) throw new Error("panel stayed open");
 await page.select("#trRoute", "pc");
-const trShows = await page.$eval("#pcPanel", (node) => node.hidden);
+const trShows = await page.$eval("#trPcPanel", (node) => node.hidden);
 if (trShows) throw new Error("translation pc should show panel");
+const trPreset = await page.$eval("#pcTrBasePreset", (node) => node.value);
+if (trPreset !== "https://desktop-ooi8v89.tail5025b3.ts.net") throw new Error("tr preset " + trPreset);
 await page.select("#trRoute", "gemini");
 
 await page.evaluate(() => document.querySelector('#sidebar .fold[data-fold="segment"] .fold-btn').click());

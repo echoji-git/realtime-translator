@@ -46,6 +46,10 @@
   #menuBtn { font-size: 16px; line-height: 1; padding: 4px 8px; }
   #jumpBtn { font-size: 13px; padding: 4px 8px; }
   #statusText { color: var(--muted); font-size: 12px; }
+  #fastBanner {
+    margin: 0; padding: 6px 10px; font-size: 12px; line-height: 1.4;
+    background: #1a2c44; color: #d5dbe3;
+  }
   #dot { width: 8px; height: 8px; border-radius: 50%; background: #66788c; display: inline-block; }
   #dot.on { background: #3ddc84; }
   #transcript {
@@ -58,6 +62,7 @@
   .tgt { font-size: var(--tgt-size); color: var(--tgt-color); font-weight: 650; line-height: 1.35; margin-top: 2px; }
   .only { font-size: var(--tgt-size); color: var(--tgt-color); font-weight: 650; line-height: 1.35; }
   .interim { color: #9aa8b8; font-size: var(--src-size); font-style: italic; }
+  .interim-word { opacity: 0.55; font-style: italic; }
   .hold { opacity: 0.55; }
   .meta { color: var(--muted); font-size: 12px; margin-bottom: 2px; }
   #jumpBtn { position: absolute; right: 24px; bottom: 84px; display: none; }
@@ -85,13 +90,17 @@
     display: flex; flex-direction: column; overflow: hidden;
   }
   #sidebar.open { transform: none; pointer-events: auto; }
-  .side-scroll { flex: 1; overflow-y: auto; padding: 16px 16px 12px; }
+  .side-scroll { flex: 1; overflow-x: hidden; overflow-y: auto; padding: 16px 16px 12px; }
+  #sidebar select, #sidebar input[type="text"], #sidebar input[type="password"], #sidebar textarea {
+    max-width: 100%; min-width: 0;
+  }
+  #pcBaseNote, #pcTrBaseNote { word-break: break-all; }
   .side-actions {
     flex: none; display: flex; flex-direction: column; gap: 8px;
     padding: 10px 16px 14px; border-top: 1px solid var(--line); background: #101b2c;
   }
-  .side-actions .row-btns, .mode-switch { display: flex; gap: 8px; }
-  .side-actions .row-btns button, .mode-switch button { flex: 1; }
+  .side-actions .row-btns, .mode-switch { display: flex; gap: 8px; flex-wrap: wrap; }
+  .side-actions .row-btns button, .mode-switch button { flex: 1 1 calc(50% - 8px); }
   .file-tools { display: contents; }
   body[data-mode="talk"] .file-tools { display: none; }
   #saveState.dirty { color: #f0c674; }
@@ -179,11 +188,16 @@
           <p id="asrApiCheck" class="hint"></p>
         </div>
         <div id="pcPanel" hidden>
-          <label for="pcBase">PC API 주소</label>
-          <input id="pcBase" type="text" autocomplete="off" spellcheck="false" placeholder="https://….ts.net">
+          <label for="pcBasePreset">PC API 주소</label>
+          <select id="pcBasePreset"></select>
+          <div id="pcBaseCustomRow" hidden>
+            <label for="pcBase">다른 API 주소</label>
+            <input id="pcBase" type="text" autocomplete="off" spellcheck="false" placeholder="https://….ts.net">
+          </div>
+          <p id="pcBaseNote" class="hint"></p>
           <label for="pcKey">비밀 키</label>
           <input id="pcKey" type="password" autocomplete="off" spellcheck="false" placeholder="이 브라우저에만 저장">
-          <p class="hint">비밀 키는 이 브라우저에만 저장됩니다. 설치할 때 바탕화면에 한 번 적힌 키를 넣습니다. 받아쓰기는 /inference, 번역은 /api/chat 으로 가며 둘 다 이 키를 붙입니다.</p>
+          <p class="hint">비밀 키는 이 브라우저에만 저장됩니다. 설치할 때 바탕화면에 한 번 적힌 키를 넣습니다. 받아쓰기와 데스크톱 적용은 이 키를 붙입니다.</p>
           <label for="pcEngine">전사 엔진</label>
           <select id="pcEngine">
             <option value="whisper">Whisper</option>
@@ -196,13 +210,15 @@
             <option value="small">small</option>
             <option value="turbo">turbo</option>
           </select>
-          <label for="pcTrSize">번역 모델</label>
-          <select id="pcTrSize">
-            <option value="1b">Ollama 1B</option>
-            <option value="2b">Ollama 2B</option>
-            <option value="4b">Ollama 4B</option>
-          </select>
-          <p id="pcModelHint" class="hint">번역에 보내는 모델: gemma3:1b</p>
+          <div id="pcTrModelRow">
+            <label for="pcTrSize">번역 모델</label>
+            <select id="pcTrSize">
+              <option value="1b">Ollama 1B</option>
+              <option value="2b">Ollama 2B</option>
+              <option value="4b">Ollama 4B</option>
+            </select>
+            <p id="pcModelHint" class="hint">번역에 보내는 모델: gemma3:1b</p>
+          </div>
           <button id="pcApplyBtn" class="bar-btn" type="button">적용</button>
           <p id="pcApplyNote" class="hint"></p>
           <p class="hint">적용은 고른 조합을 데스크톱에 보내고, 모델 파일과 그래픽 메모리, 조각당 시간을 받아 옵니다. 데스크톱이 응답하지 않으면 주소와 키만 저장됩니다.</p>
@@ -216,6 +232,22 @@
           <option value="gemma">기기 내 Gemma</option>
         </select>
         <p id="trRouteHint" class="hint">번역 칸은 전사 칸과 따로입니다. 확정된 글만 보내고, 음성은 이 칸으로 나가지 않습니다.</p>
+        <div id="trPcPanel" hidden>
+          <label for="pcTrBasePreset">PC API 주소</label>
+          <select id="pcTrBasePreset"></select>
+          <div id="pcTrBaseCustomRow" hidden>
+            <label for="pcTrBase">다른 API 주소</label>
+            <input id="pcTrBase" type="text" autocomplete="off" spellcheck="false" placeholder="https://….ts.net">
+          </div>
+          <p id="pcTrBaseNote" class="hint"></p>
+          <label for="pcTrKey">비밀 키</label>
+          <input id="pcTrKey" type="password" autocomplete="off" spellcheck="false" placeholder="이 브라우저에만 저장">
+          <p class="hint">비밀 키는 이 브라우저에만 저장됩니다. 번역은 /api/chat 으로 가며 이 키를 붙입니다. 비워 두면 전사 쪽 비밀 키를 씁니다. 빠른 자막으로 받아써도 번역은 이 주소로 갑니다.</p>
+          <div id="trPcModelSlot"></div>
+          <button id="trPcApplyBtn" class="bar-btn" type="button">적용</button>
+          <p id="trPcApplyNote" class="hint"></p>
+          <p class="hint">적용은 고른 번역 모델을 이 주소의 데스크톱에 보냅니다. 데스크톱이 응답하지 않으면 주소와 키만 저장됩니다.</p>
+        </div>
         <div id="gemmaRow" hidden>
           <p class="hint">회의 번역은 이미 받아 둔 Gemma 4 E2B 가중치를 고릅니다. Google AI Edge Gallery가 받는 파일 이름은 gemma-4-E2B-it.litertlm입니다. 그 파일은 앱 전용 폴더에 있어 이 페이지가 그 폴더를 바로 열지는 못합니다. 파일 고르기에서 그 파일이 보이면 한 번 고릅니다. 이 브라우저가 그 선택을 기억하면 다음에도 같은 파일을 씁니다. 음성은 나가지 않습니다. 문서에 적힌 브라우저용 파일은 이름이 다른 더 작은 파일이라, 앱이 받은 파일이 여기서 열리지 않을 수 있습니다.</p>
           <button id="gemmaPickBtn" class="bar-btn" type="button">Gemma 가중치 고르기</button>
@@ -277,17 +309,19 @@
           <option value="mid" selected>기본</option>
           <option value="high">크게</option>
         </select>
-        <p class="hint">기본은 지금과 같습니다. 작게는 큰 소리를 낮추고, 크게는 작은 소리를 키웁니다. 소리는 잘라서 깨지지 않게 합니다. Gemini와 PC API로 보내기 전에 적용됩니다. 저장을 누르면 이 브라우저에 남습니다.</p>
+        <p id="micLevelHint" class="hint">기본은 지금과 같습니다. 작게는 큰 소리를 낮추고, 크게는 작은 소리를 키웁니다. 소리는 잘라서 깨지지 않게 합니다. Gemini와 PC API로 보내기 전에 적용됩니다. 저장을 누르면 이 브라우저에 남습니다.</p>
         <label>전사 옵션</label>
         <div class="mode-switch" role="group" aria-label="전사 옵션">
           <button id="cutOverlap" class="bar-btn" type="button">겹침</button>
           <button id="cutCut" class="bar-btn" type="button">분절</button>
           <button id="cutPause" class="bar-btn" type="button">기존</button>
+          <button id="cutFast" class="bar-btn" type="button">빠른 자막</button>
         </div>
+        <p id="fastGoogleHint" class="hint">빠른 자막을 고르면 말한 소리가 구글 서버로 전송됩니다.</p>
         <label for="segment">분절 길이 <span id="segmentVal"></span></label>
         <input id="segment" type="range" min="1" max="5" step="1">
         <p id="segmentHint" class="hint"></p>
-        <p class="hint">이 옵션은 PC API, Gemini 음성, 기기 내 Whisper에 적용됩니다. 기기 내 SenseVoice는 자기 구간을 그대로 씁니다.</p>
+        <p class="hint">겹침, 분절, 기존은 PC API, Gemini 음성, 기기 내 Whisper에 적용됩니다. 빠른 자막은 브라우저 음성 인식을 쓰고, 기기 내 SenseVoice는 자기 구간을 그대로 씁니다.</p>
       </div>
     </section>
     <section class="fold" data-fold="screen">
@@ -364,7 +398,7 @@
           <button id="modeTalk" class="bar-btn" type="button">대화모드</button>
         </div>
         <p id="modeHint" class="hint">Test모드는 음성 파일로 확인합니다.</p>
-        <p id="devVersion" class="hint">개발Version 정보 : v1.033 (261114)</p>
+        <p id="devVersion" class="hint">개발Version 정보 : v1.04 (261115)</p>
         <ul id="devHistory" class="hint dev-history">
           <li>v1.01(261114) : 전사로 들어가는 소리를 키우고 선명하게 처리</li>
           <li>v1.02(261114) : 쉬거나 8–15초가 차면 그 구간만 한 번 전송</li>
@@ -372,6 +406,7 @@
           <li>v1.031(261114) : 겹친 구간의 잘린 단어를 다음 인식으로 고쳐 잇는다</li>
           <li>v1.032(261114) : 전사 옵션에서 겹침, 분절, 기존 중 하나를 고른다</li>
           <li>v1.033(261114) : 빈 용어집과 빈 직전 원문을 지우고, PC 비밀 키와 적용, 마이크 입력 크기를 넣는다</li>
+          <li>v1.04(261115) : 브라우저 음성 인식으로 빠른 자막을 붙이고, 전사와 번역의 PC API 주소를 따로 고른다</li>
         </ul>
       </div>
     </section>
@@ -392,6 +427,7 @@
     <span id="dot" aria-hidden="true"></span>
     <span id="statusText">대기 · SenseVoice 대기</span>
   </header>
+  <p id="fastBanner" hidden></p>
   <main id="transcript" aria-live="polite"></main>
   <button id="jumpBtn" type="button">최신으로</button>
   <footer id="controls">
@@ -428,6 +464,7 @@
   ];
   var SETTINGS_KEY = "rtb.settings.v1";
   var RECORDS_KEY = "rtb.records.v1";
+  var PC_DEFAULT_BASE = "https://desktop-ooi8v89.tail5025b3.ts.net";
   var defaults = {
     lang1: "ko", lang2: "en", displayMode: "both",
     bgColor: "#0e1a2b", bgImage: "",
@@ -436,7 +473,8 @@
     asrRoute: "gemini", localAsr: "sensevoice",
     asrKey: "", asrModel: "", asrModelIds: [],
     trRoute: "gemini", trKey: "", trModel: "", trModelIds: [],
-    pcBase: "", pcKey: "", pcModel: "gemma3:1b",
+    pcBase: PC_DEFAULT_BASE, pcKey: "", pcTrBase: PC_DEFAULT_BASE, pcTrKey: "",
+    pcModel: "gemma3:1b",
     pcEngine: "whisper", pcSize: "base", pcTrSize: "1b",
     micLevel: "mid",
     glossary: "",
@@ -531,6 +569,17 @@
   var gemmaLoaded = false;
   var gemmaSource = null;
   var gemmaPerm = "";
+  var fastOn = false;
+  var fastRec = null;
+  var fastStable = "";
+  var fastInterim = "";
+  var fastItem = null;
+  var fastRestartTimer = 0;
+  var fastCloseTimer = 0;
+  var fastWake = null;
+  var fastStatus = "";
+  var fastRetryMs = 250;
+  var fastFailStreak = 0;
   var LITERT_URL = "https://cdn.jsdelivr.net/npm/@litert-lm/core/+esm";
   var GEMMA_DB = "rtb.gemma.v1";
   var GEMMA_DIR = "gemma-weight-v1";
@@ -549,12 +598,25 @@
     toast: document.getElementById("toast")
   };
 
+  function cleanBase(value) {
+    return String(value || "").trim().replace(/\/+$/, "");
+  }
+
   function loadSettings() {
     try {
       var raw = localStorage.getItem(SETTINGS_KEY);
       if (!raw) return Object.assign({}, defaults);
       var parsed = JSON.parse(raw);
-      return migrateSettings(Object.assign({}, defaults, parsed));
+      var merged = Object.assign({}, defaults, parsed);
+      if (!Object.prototype.hasOwnProperty.call(parsed, "pcTrBase")) {
+        merged.pcTrBase = cleanBase(parsed.pcBase) || defaults.pcTrBase;
+      }
+      if (!Object.prototype.hasOwnProperty.call(parsed, "pcTrKey")) {
+        merged.pcTrKey = String(parsed.pcKey || "").trim();
+      }
+      if (!cleanBase(merged.pcBase)) merged.pcBase = defaults.pcBase;
+      if (!cleanBase(merged.pcTrBase)) merged.pcTrBase = defaults.pcTrBase;
+      return migrateSettings(merged);
     } catch (e) {
       return Object.assign({}, defaults);
     }
@@ -579,8 +641,10 @@
     if (s.asrRoute !== "local" && s.asrRoute !== "gemini" && s.asrRoute !== "none" && s.asrRoute !== "pc") s.asrRoute = "local";
     if (s.localAsr !== "whisper") s.localAsr = "sensevoice";
     if (s.trRoute !== "gemini" && s.trRoute !== "gemma" && s.trRoute !== "pc") s.trRoute = "gemini";
-    s.pcBase = String(s.pcBase || "").trim();
+    s.pcBase = cleanBase(s.pcBase);
+    s.pcTrBase = cleanBase(s.pcTrBase);
     s.pcKey = String(s.pcKey || "").trim();
+    s.pcTrKey = String(s.pcTrKey || "").trim();
     if (s.pcEngine !== "whisper" && s.pcEngine !== "sensevoice") s.pcEngine = "whisper";
     if (s.pcSize !== "base" && s.pcSize !== "small" && s.pcSize !== "turbo") s.pcSize = "base";
     if (s.pcTrSize !== "1b" && s.pcTrSize !== "2b" && s.pcTrSize !== "4b") {
@@ -604,7 +668,7 @@
     rememberModelId(s.asrModelIds, s.geminiModel);
     if (s.trModel === "__new__") s.trModel = "";
     if (s.asrModel === "__new__") s.asrModel = "";
-    if (s.cutMode !== "overlap" && s.cutMode !== "cut" && s.cutMode !== "pause") s.cutMode = "overlap";
+    if (s.cutMode !== "overlap" && s.cutMode !== "cut" && s.cutMode !== "pause" && s.cutMode !== "fast") s.cutMode = "overlap";
     return s;
   }
 
@@ -690,11 +754,17 @@
     document.getElementById("tgtColor").value = settings.tgtColor;
     document.getElementById("maxItems").value = settings.maxItems;
     document.getElementById("segment").value = settings.segment;
+    var fastBlocked = settings.cutMode === "fast" && !speechCtor();
+    if (fastBlocked) settings.cutMode = "overlap";
     paintCutMode();
     document.getElementById("trKey").value = settings.trKey || "";
     document.getElementById("asrKey").value = settings.asrKey || "";
-    document.getElementById("pcBase").value = settings.pcBase || "";
     document.getElementById("pcKey").value = settings.pcKey || "";
+    document.getElementById("pcTrKey").value = settings.pcTrKey || "";
+    fillPcPreset(document.getElementById("pcBasePreset"));
+    fillPcPreset(document.getElementById("pcTrBasePreset"));
+    bindPcAddress("asr");
+    bindPcAddress("tr");
     paintPcModelHint();
     document.getElementById("glossary").value = settings.glossary || "";
     paintModelSelect("tr");
@@ -702,6 +772,7 @@
     document.getElementById("srcSizeVal").textContent = settings.srcSize + "px";
     document.getElementById("tgtSizeVal").textContent = settings.tgtSize + "px";
     paintSegmentLabel();
+    if (fastBlocked) showFastUnsupported();
     syncEnginePanels();
   }
 
@@ -766,11 +837,12 @@
   function readAllSettings() {
     ["lang1", "lang2", "displayMode", "asrRoute", "localAsr", "trRoute", "playbackRate", "mdFormat",
       "bgColor", "srcSize", "tgtSize", "srcColor", "tgtColor", "maxItems", "segment",
-      "trKey", "asrKey", "glossary", "pcBase", "pcKey", "pcEngine", "pcSize", "pcTrSize", "micLevel"].forEach(readForm);
+      "trKey", "asrKey", "glossary", "pcKey", "pcTrKey", "pcEngine", "pcSize", "pcTrSize", "micLevel"].forEach(readForm);
     settings.trKey = String(settings.trKey || "").trim();
     settings.asrKey = String(settings.asrKey || "").trim();
-    settings.pcBase = String(settings.pcBase || "").trim();
     settings.pcKey = String(settings.pcKey || "").trim();
+    settings.pcTrKey = String(settings.pcTrKey || "").trim();
+    resolvePcAddresses();
     applyChosenModel("tr");
     applyChosenModel("asr");
     settings = migrateSettings(settings);
@@ -901,6 +973,10 @@
   function onSettingInput(event) {
     if (event.target.type === "file") return;
     var id = event.target.id;
+    if (id === "pcBasePreset" || id === "pcTrBasePreset") {
+      onPcPreset(id === "pcTrBasePreset" ? "tr" : "asr");
+      return;
+    }
     if (!id || !(id in defaults)) return;
     if (id === "trModel" || id === "asrModel") {
       if (event.target.value !== "__new__") {
@@ -927,8 +1003,14 @@
       asrNoteEl.className = "hint";
     }
     if (id === "pcTrSize" || id === "pcSize" || id === "pcEngine") paintPcModelHint();
-    if (id === "pcBase" && (settings.asrRoute === "pc" || settings.trRoute === "pc")) refreshPcStatus();
-    if (id === "pcKey" && event.type !== "input" && (settings.asrRoute === "pc" || settings.trRoute === "pc")) refreshPcStatus();
+    if (id === "pcBase" || id === "pcTrBase") {
+      resolvePcAddresses();
+      paintPcAddressNote(id === "pcTrBase" ? "tr" : "asr");
+    }
+    if (id === "pcBase" && settings.asrRoute === "pc") refreshPcStatus();
+    if (id === "pcTrBase" && settings.trRoute === "pc") refreshPcStatus();
+    if (id === "pcKey" && event.type !== "input" && settings.asrRoute === "pc") refreshPcStatus();
+    if (id === "pcTrKey" && event.type !== "input" && settings.trRoute === "pc") refreshPcStatus();
     if (id === "asrRoute" || id === "localAsr") {
       resetAsrAudio();
       syncEnginePanels();
@@ -939,6 +1021,10 @@
     }
     applyTheme();
     updateSaveState();
+    if (id === "lang1" && cutMode() === "fast") {
+      paintCutMode();
+      if (fastOn) openFastRec();
+    }
     if (id === "displayMode" || id === "lang1" || id === "lang2" || id === "maxItems") render();
   }
 
@@ -966,6 +1052,12 @@
   }
 
   function refreshStatus() {
+    paintFastBanner();
+    if (cutMode() === "fast") {
+      el.dot.classList.toggle("on", !!fastOn);
+      el.status.textContent = fastStatus || (fastOn ? "빠른 자막 듣는 중" : "빠른 자막 대기");
+      return;
+    }
     var fileOn = !!(el.player && !el.player.paused);
     var active = !!(micStream || micStarting || fileOn);
     el.dot.classList.toggle("on", active);
@@ -1075,6 +1167,28 @@
     }
   }
 
+  function fillSource(node, item) {
+    if (item && item.engine === "webspeech") {
+      node.textContent = "";
+      var stable = item.fastStable || "";
+      var interimText = item.fastInterim || "";
+      if (!stable && !interimText) {
+        node.textContent = item.srcText || "";
+        return;
+      }
+      if (stable) node.appendChild(document.createTextNode(stable));
+      if (interimText) {
+        if (stable) node.appendChild(document.createTextNode(" "));
+        var span = document.createElement("span");
+        span.className = "interim-word";
+        span.textContent = interimText;
+        node.appendChild(span);
+      }
+      return;
+    }
+    fillHeld(node, item.srcText, item.hold);
+  }
+
   function fillHeld(node, text, hold) {
     node.textContent = "";
     var parts = splitHold(text, hold);
@@ -1125,7 +1239,7 @@
       if (single === null) {
         var src = document.createElement("div");
         src.className = "src";
-        fillHeld(src, item.srcText, item.hold);
+        fillSource(src, item);
         var tgt = document.createElement("div");
         tgt.className = "tgt";
         tgt.textContent = item.tgtText || "번역 전";
@@ -1135,7 +1249,7 @@
         var only = document.createElement("div");
         only.className = "only";
         var want = settings.displayMode === "lang1" ? settings.lang1 : settings.lang2;
-        if (item.srcLang === want) fillHeld(only, item.srcText, item.hold);
+        if (item.srcLang === want) fillSource(only, item);
         else only.textContent = single;
         box.appendChild(only);
       }
@@ -1231,6 +1345,9 @@
   function clearRecords() {
     records = [];
     interim = "";
+    fastItem = null;
+    fastStable = "";
+    fastInterim = "";
     asrEpoch++;
     dropUtt = !!(uttCount || extVoiced || asrHeard);
     partialGen++;
@@ -1373,10 +1490,12 @@
     if (name === "whisper") return "Whisper";
     if (name === "gemini") return "Gemini 음성";
     if (name === "pc-whisper") return "PC Whisper";
+    if (name === "webspeech") return "빠른 자막";
     return "";
   }
 
   function asrStatusLabel() {
+    if (cutMode() === "fast") return "빠른 자막";
     if (settings.asrRoute === "none") return "연결 안 함";
     if (settings.asrRoute === "gemini") return "Gemini 음성";
     if (settings.asrRoute === "pc") return "PC API";
@@ -1907,7 +2026,16 @@
     }
   }
 
-  async function runGemma(item) {
+  function jobStale(item, job) {
+    if (!job) return false;
+    if (job.signal && job.signal.aborted) return true;
+    if (job.seq && item.fastSeq !== job.seq) return true;
+    return false;
+  }
+
+  async function runGemma(item, job) {
+    job = job || {};
+    if (jobStale(item, job)) return;
     var other = item.srcLang === settings.lang1 ? settings.lang2 : settings.lang1;
     item.tgtLang = other;
     item.tgtText = "Gemma를 여는 중";
@@ -1937,19 +2065,22 @@
         translation = cleanShown(translation);
       }
       if (!translation) throw new Error("empty");
+      if (jobStale(item, job)) return;
       item.tgtLang = other;
       item.tgtText = translation;
       item.status = "done";
     } catch (e) {
+      if (jobStale(item, job) || (e && e.name === "AbortError")) return;
       item.tgtText = gemmaErrorText(e);
       item.status = "error";
     }
+    if (jobStale(item, job)) return;
     saveRecords();
     render();
   }
 
-  function translateWithGemma(item) {
-    var run = gemmaChain.then(function () { return runGemma(item); });
+  function translateWithGemma(item, job) {
+    var run = gemmaChain.then(function () { return runGemma(item, job); });
     gemmaChain = run.then(function () {}, function () {});
     return run;
   }
@@ -2009,8 +2140,8 @@
     toast("Gemma 가중치를 이 브라우저에 두었습니다. 원본과 같은 크기만큼 저장 공간을 더 씁니다.");
   }
 
-  function pcOrigin() {
-    var raw = String(settings.pcBase || "").trim();
+  function originOf(raw) {
+    raw = cleanBase(raw);
     if (!raw) return "";
     try {
       var url = new URL(raw);
@@ -2018,6 +2149,14 @@
       if (url.protocol === "https:" || (url.protocol === "http:" && loopback)) return url.origin;
     } catch (e) {}
     return "";
+  }
+
+  function pcOrigin() {
+    return originOf(settings.pcBase);
+  }
+
+  function pcTrOrigin() {
+    return originOf(settings.pcTrBase);
   }
 
   function wavBlob(samples) {
@@ -2033,15 +2172,23 @@
     return window.RtbClean.pcHeaders(key, extra);
   }
 
-  async function pcChat(origin, model, prompt) {
+  function pcTrAuthHeaders(extra) {
+    var keyNode = document.getElementById("pcTrKey");
+    var key = String((keyNode && keyNode.value) || settings.pcTrKey || "").trim();
+    if (!key) return pcAuthHeaders(extra);
+    return window.RtbClean.pcHeaders(key, extra);
+  }
+
+  async function pcChat(origin, model, prompt, signal) {
     var res = await fetch(origin + "/api/chat", {
       method: "POST",
-      headers: pcAuthHeaders({ "Content-Type": "application/json" }),
+      headers: pcTrAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         model: model,
         stream: false,
         messages: [{ role: "user", content: prompt }]
-      })
+      }),
+      signal: signal || undefined
     });
     var data = null;
     try { data = await res.json(); } catch (e) { data = null; }
@@ -2063,8 +2210,10 @@
     return plain;
   }
 
-  async function translateWithPc(item) {
-    var origin = pcOrigin();
+  async function translateWithPc(item, job) {
+    job = job || {};
+    if (jobStale(item, job)) return;
+    var origin = pcTrOrigin();
     var model = String(settings.pcModel || "").trim();
     if (!origin || !model || !/^[A-Za-z0-9._:-]+$/.test(model)) {
       item.tgtText = "번역하려면 PC API 주소와 Ollama 모델을 넣고 저장하세요";
@@ -2083,12 +2232,15 @@
     });
     var second = "Translate into " + targetName + " only. Use that language's normal writing. Do not repeat the source and do not use another language.\n" + item.srcText;
     try {
-      var firstReply = await pcChat(origin, model, first);
+      var firstReply = await pcChat(origin, model, first, job.signal);
+      if (jobStale(item, job)) return;
       var text = pcTranslationText(firstReply.content);
       if (!firstReply.ok || !pcTranslationOk(text, other)) {
-        var secondReply = await pcChat(origin, model, second);
+        var secondReply = await pcChat(origin, model, second, job.signal);
+        if (jobStale(item, job)) return;
         text = pcTranslationText(secondReply.content);
       }
+      if (jobStale(item, job)) return;
       if (pcTranslationOk(text, other)) {
         item.tgtLang = other;
         item.tgtText = text;
@@ -2098,20 +2250,24 @@
         item.status = "error";
       }
     } catch (e3) {
+      if (jobStale(item, job) || (e3 && e3.name === "AbortError")) return;
       item.tgtText = "번역 실패";
       item.status = "error";
     }
+    if (jobStale(item, job)) return;
     saveRecords();
     render();
   }
 
-  async function translateItem(item) {
+  async function translateItem(item, job) {
+    job = job || {};
+    if (jobStale(item, job)) return;
     if (settings.trRoute === "gemma") {
-      await translateWithGemma(item);
+      await translateWithGemma(item, job);
       return;
     }
     if (settings.trRoute === "pc") {
-      await translateWithPc(item);
+      await translateWithPc(item, job);
       return;
     }
     var key = document.getElementById("trKey").value.trim() || String(settings.trKey || "").trim();
@@ -2139,10 +2295,13 @@
         body: JSON.stringify({
           contents: [{ role: "user", parts: [{ text: prompt }] }],
           generationConfig: { temperature: 0 }
-        })
+        }),
+        signal: job.signal || undefined
       });
+      if (jobStale(item, job)) return;
       var data = null;
       try { data = await res.json(); } catch (e) { data = null; }
+      if (jobStale(item, job)) return;
       if (!res.ok) {
         item.tgtText = "번역 실패";
         item.status = "error";
@@ -2168,14 +2327,17 @@
         }
       }
     } catch (e3) {
+      if (jobStale(item, job) || (e3 && e3.name === "AbortError")) return;
       item.tgtText = "번역 실패";
       item.status = "error";
     }
+    if (jobStale(item, job)) return;
     saveRecords();
     render();
   }
 
   function segmentKind() {
+    if (cutMode() === "fast") return "off";
     if (settings.asrRoute === "gemini" || settings.asrRoute === "pc") return "energy";
     if (settings.asrRoute === "local" && settings.localAsr === "whisper") return "energy";
     if (settings.asrRoute === "local" && settings.localAsr === "sensevoice") return "sense";
@@ -2222,17 +2384,18 @@
   }
 
   async function refreshPcStatus() {
-    var origin = pcOrigin();
+    var origin = settings.asrRoute === "pc" ? pcOrigin() : (settings.trRoute === "pc" ? pcTrOrigin() : "");
+    var headers = settings.asrRoute === "pc" ? pcAuthHeaders() : pcTrAuthHeaders();
     if (!origin) return;
     try {
-      var res = await fetch(origin + "/manager/status", { method: "GET", headers: pcAuthHeaders() });
+      var res = await fetch(origin + "/manager/status", { method: "GET", headers: headers });
       if (!res.ok) return;
       var data = await res.json();
       paintSenseVoice(data);
     } catch (e) {}
   }
 
-  async function applyPcSettings() {
+  async function applyPcSettings(which) {
     readAllSettings();
     paintPcModelHint();
     if (settings.pcTrSize === "4b" && settings.pcSize === "turbo") {
@@ -2240,8 +2403,10 @@
       if (!go) return;
     }
     if (saveSettings()) markSaved();
-    var note = document.getElementById("pcApplyNote");
-    var origin = pcOrigin();
+    var useTr = which === "tr";
+    var note = document.getElementById(useTr ? "trPcApplyNote" : "pcApplyNote");
+    var origin = useTr ? pcTrOrigin() : pcOrigin();
+    var headersFor = useTr ? pcTrAuthHeaders : pcAuthHeaders;
     if (!origin) {
       if (note) note.textContent = "PC API 주소는 https 로 넣으세요. 입력은 이 브라우저에 저장했습니다.";
       return;
@@ -2250,7 +2415,7 @@
     try {
       var res = await fetch(origin + "/manager/apply", {
         method: "POST",
-        headers: pcAuthHeaders({ "Content-Type": "application/json" }),
+        headers: headersFor({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           engine: settings.pcEngine,
           size: settings.pcSize,
@@ -2278,7 +2443,9 @@
     var local = settings.asrRoute === "local";
     document.getElementById("localAsrRow").hidden = !local;
     document.getElementById("asrApiRow").hidden = settings.asrRoute !== "gemini";
-    document.getElementById("pcPanel").hidden = settings.asrRoute !== "pc" && settings.trRoute !== "pc";
+    document.getElementById("pcPanel").hidden = settings.asrRoute !== "pc";
+    document.getElementById("trPcPanel").hidden = settings.trRoute !== "pc";
+    placePcTrModel();
     var gemma = settings.trRoute === "gemma";
     document.getElementById("gemmaRow").hidden = !gemma;
     document.getElementById("trApiRow").hidden = settings.trRoute !== "gemini";
@@ -2287,7 +2454,7 @@
       trHint.textContent = gemma
         ? "기기 내 Gemma는 고른 .litertlm만 읽습니다. 확정된 글만 넣고, 음성은 나가지 않습니다. 번역 제공자를 바꾼 뒤에는 저장하세요."
         : settings.trRoute === "pc"
-          ? "PC API 번역은 고른 Ollama 모델로 확정된 글만 보냅니다. 음성은 이 칸으로 나가지 않습니다. 비밀 키를 같이 보냅니다."
+          ? "PC API 번역은 아래 주소의 Ollama로 확정된 글만 보냅니다. 빠른 자막으로 받아써도 번역은 이 주소로 갑니다. 음성은 이 칸으로 나가지 않습니다."
           : "번역 칸은 전사 칸과 따로입니다. 확정된 글만 보내고, 음성은 이 칸으로 나가지 않습니다.";
     }
     if (gemma) refreshGemmaNote().catch(function () {});
@@ -2304,7 +2471,7 @@
       node.textContent = "전사를 하지 않습니다. 메인 화면에 새 글이 생기지 않습니다.";
       asrNote = "전사 안 함";
     } else if (route === "pc") {
-      node.textContent = "이 PC의 받아쓰기로 적습니다. 말 조각은 PC API 주소의 /inference 로 가고, 비밀 키를 같이 보냅니다. 이 브라우저는 모델 파일을 받지 않습니다.";
+      node.textContent = "이 PC의 받아쓰기로 적습니다. 말 조각은 아래 PC API 주소의 /inference 로 가고, 비밀 키를 같이 보냅니다. 이 브라우저는 모델 파일을 받지 않습니다.";
       if (!segBusy) asrNote = "PC API Whisper";
     } else if (settings.localAsr === "whisper") {
       node.textContent = "기기 안 Whisper tiny로 적습니다. 이 모델을 골랐을 때만 받습니다. 음성은 나가지 않습니다. 말이 이어지는 동안 단어를 바로 띄우고, 뒤 맥락으로 앞 단어가 바뀌면 그 줄을 고칩니다. 언어는 고른 둘 중 하나로 잠급니다.";
@@ -2628,7 +2795,7 @@
   }
 
   function cutMode() {
-    if (settings.cutMode === "cut" || settings.cutMode === "pause") return settings.cutMode;
+    if (settings.cutMode === "cut" || settings.cutMode === "pause" || settings.cutMode === "fast") return settings.cutMode;
     return "overlap";
   }
 
@@ -2644,6 +2811,10 @@
   function paintSegmentLabel() {
     var node = document.getElementById("segmentVal");
     if (!node) return;
+    if (cutMode() === "fast") {
+      node.textContent = "사용 안 함";
+      return;
+    }
     if (cutMode() === "pause") {
       var plan = pausePlan();
       node.textContent = "쉼 " + (plan.silence / 1000) + "초 · 최대 " + plan.max + "초";
@@ -2654,32 +2825,478 @@
 
   function paintCutMode() {
     var mode = cutMode();
-    document.getElementById("cutOverlap").classList.toggle("active", mode === "overlap");
-    document.getElementById("cutCut").classList.toggle("active", mode === "cut");
-    document.getElementById("cutPause").classList.toggle("active", mode === "pause");
-    document.getElementById("cutOverlap").setAttribute("aria-pressed", mode === "overlap" ? "true" : "false");
-    document.getElementById("cutCut").setAttribute("aria-pressed", mode === "cut" ? "true" : "false");
-    document.getElementById("cutPause").setAttribute("aria-pressed", mode === "pause" ? "true" : "false");
+    var modes = [["cutOverlap", "overlap"], ["cutCut", "cut"], ["cutPause", "pause"], ["cutFast", "fast"]];
+    modes.forEach(function (pair) {
+      var btn = document.getElementById(pair[0]);
+      if (!btn) return;
+      var on = mode === pair[1];
+      btn.classList.toggle("active", on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    var segment = document.getElementById("segment");
+    if (segment) segment.disabled = mode === "fast";
+    var micHint = document.getElementById("micLevelHint");
+    if (micHint) {
+      micHint.textContent = mode === "fast"
+        ? "빠른 자막에서는 마이크 입력 크기가 적용되지 않습니다. 브라우저가 마이크를 직접 엽니다."
+        : "기본은 지금과 같습니다. 작게는 큰 소리를 낮추고, 크게는 작은 소리를 키웁니다. 소리는 잘라서 깨지지 않게 합니다. Gemini와 PC API로 보내기 전에 적용됩니다. 저장을 누르면 이 브라우저에 남습니다.";
+    }
     var hint = document.getElementById("segmentHint");
     if (hint) {
-      hint.textContent = mode === "pause"
-        ? "말이 쉬거나 최대 길이가 차면 그 구간을 한 번만 보냅니다. 1은 쉼 0.5초·최대 5초, 5는 쉼 1.3초·최대 13초입니다."
-        : mode === "cut"
-          ? "이 초마다 겹침 없이 자릅니다. 각 조각은 따로 받아쓰고, 앞 소리를 이어서 듣지 않습니다. 글만 같은 줄에 붙입니다."
-          : "이 초마다 보냅니다. 경계 0.2초를 다음 조각과 같이 듣고, 그 끝단어는 흐리게 두었다가 다음 인식으로 고칩니다.";
+      hint.textContent = mode === "fast"
+        ? "인식 언어는 언어1(" + langName(settings.lang1) + ")입니다. 단어가 나오는 대로 원문을 고치고, 네 단어가 모이거나 0.45초 쉬면 그 문장을 번역합니다. 같은 문장은 번역을 고쳐 씁니다. 분절 길이는 적용되지 않습니다."
+        : mode === "pause"
+          ? "말이 쉬거나 최대 길이가 차면 그 구간을 한 번만 보냅니다. 1은 쉼 0.5초·최대 5초, 5는 쉼 1.3초·최대 13초입니다."
+          : mode === "cut"
+            ? "이 초마다 겹침 없이 자릅니다. 각 조각은 따로 받아쓰고, 앞 소리를 이어서 듣지 않습니다. 글만 같은 줄에 붙입니다."
+            : "이 초마다 보냅니다. 경계 0.2초를 다음 조각과 같이 듣고, 그 끝단어는 흐리게 두었다가 다음 인식으로 고칩니다.";
     }
     paintSegmentLabel();
+    paintFastBanner();
   }
 
   function setCutMode(mode) {
-    if (mode !== "overlap" && mode !== "cut" && mode !== "pause") return;
+    if (mode !== "overlap" && mode !== "cut" && mode !== "pause" && mode !== "fast") return;
+    if (mode === "fast" && !speechCtor()) {
+      paintCutMode();
+      showFastUnsupported();
+      return;
+    }
+    var was = cutMode();
     settings.cutMode = mode;
-    beginWindowSession();
-    extSilence = 0;
-    extVoiced = false;
-    resetUttBuffers();
+    if (was === "fast" && mode !== "fast") stopFastCaption();
+    if (mode !== "fast") {
+      beginWindowSession();
+      extSilence = 0;
+      extVoiced = false;
+      resetUttBuffers();
+    }
+    if (mode === "fast" && (micStream || micStarting)) {
+      disconnectMic();
+      startFastCaption();
+    }
     paintCutMode();
+    updateAsrHint();
     updateSaveState();
+  }
+
+  function speechCtor() {
+    var ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+    return typeof ctor === "function" ? ctor : null;
+  }
+
+  function speechLang(code) {
+    var map = {
+      ko: "ko-KR", en: "en-US", ja: "ja-JP", zh: "zh-CN",
+      es: "es-ES", fr: "fr-FR", de: "de-DE", vi: "vi-VN",
+      th: "th-TH", id: "id-ID", pt: "pt-BR", ru: "ru-RU"
+    };
+    return map[code] || "ko-KR";
+  }
+
+  function showFastUnsupported() {
+    var hint = document.getElementById("segmentHint");
+    if (hint) hint.textContent = "이 브라우저는 빠른 자막을 지원하지 않음";
+    toast("이 브라우저는 빠른 자막을 지원하지 않음");
+  }
+
+  function paintFastBanner() {
+    var banner = document.getElementById("fastBanner");
+    if (!banner) return;
+    var on = cutMode() === "fast";
+    banner.hidden = !on;
+    banner.textContent = on ? "빠른 자막 · 마이크 입력 크기는 적용되지 않습니다. 말한 소리는 구글 서버로 갑니다." : "";
+  }
+
+  function fillPcPreset(select) {
+    if (!select || select.getAttribute("data-ready") === "1") return;
+    select.innerHTML = "";
+    var opt = document.createElement("option");
+    opt.value = PC_DEFAULT_BASE;
+    opt.textContent = PC_DEFAULT_BASE;
+    select.appendChild(opt);
+    var custom = document.createElement("option");
+    custom.value = "__custom__";
+    custom.textContent = "다른 API 주소";
+    select.appendChild(custom);
+    select.setAttribute("data-ready", "1");
+  }
+
+  function bindPcAddress(which) {
+    var tr = which === "tr";
+    var field = tr ? "pcTrBase" : "pcBase";
+    var preset = document.getElementById(tr ? "pcTrBasePreset" : "pcBasePreset");
+    var input = document.getElementById(field);
+    var row = document.getElementById(tr ? "pcTrBaseCustomRow" : "pcBaseCustomRow");
+    fillPcPreset(preset);
+    var value = cleanBase(settings[field]) || PC_DEFAULT_BASE;
+    var isDefault = value === PC_DEFAULT_BASE;
+    settings[field] = isDefault ? PC_DEFAULT_BASE : value;
+    if (preset) preset.value = isDefault ? PC_DEFAULT_BASE : "__custom__";
+    if (input) input.value = isDefault ? "" : value;
+    if (row) row.hidden = isDefault;
+    paintPcAddressNote(which);
+  }
+
+  function paintPcAddressNote(which) {
+    var tr = which === "tr";
+    var note = document.getElementById(tr ? "pcTrBaseNote" : "pcBaseNote");
+    if (!note) return;
+    var value = cleanBase(settings[tr ? "pcTrBase" : "pcBase"]);
+    note.textContent = value ? "사용 주소: " + value : "다른 API 주소를 입력하세요.";
+  }
+
+  function chosenPcAddress(presetId, inputId) {
+    var preset = document.getElementById(presetId);
+    var input = document.getElementById(inputId);
+    if (!preset || preset.value !== "__custom__") return PC_DEFAULT_BASE;
+    return cleanBase(input && input.value);
+  }
+
+  function resolvePcAddresses() {
+    settings.pcBase = chosenPcAddress("pcBasePreset", "pcBase");
+    settings.pcTrBase = chosenPcAddress("pcTrBasePreset", "pcTrBase");
+  }
+
+  function onPcPreset(which) {
+    var tr = which === "tr";
+    var preset = document.getElementById(tr ? "pcTrBasePreset" : "pcBasePreset");
+    var row = document.getElementById(tr ? "pcTrBaseCustomRow" : "pcBaseCustomRow");
+    if (row) row.hidden = !(preset && preset.value === "__custom__");
+    resolvePcAddresses();
+    paintPcAddressNote(which);
+    if ((tr && settings.trRoute === "pc") || (!tr && settings.asrRoute === "pc")) refreshPcStatus();
+    updateSaveState();
+  }
+
+  function placePcTrModel() {
+    var row = document.getElementById("pcTrModelRow");
+    if (!row) return;
+    if (settings.trRoute === "pc") {
+      var slot = document.getElementById("trPcModelSlot");
+      if (slot && row.parentNode !== slot) slot.appendChild(row);
+      return;
+    }
+    var panel = document.getElementById("pcPanel");
+    var btn = document.getElementById("pcApplyBtn");
+    if (panel && btn && row.parentNode !== panel) panel.insertBefore(row, btn);
+  }
+
+  function joinFast(left, right) {
+    left = String(left || "").replace(/\s+$/, "");
+    right = String(right || "").replace(/^\s+/, "");
+    if (!left) return right;
+    if (!right) return left;
+    return left + " " + right;
+  }
+
+  function absorbFast(stable, incoming, isFinal) {
+    incoming = String(incoming || "").replace(/\s+/g, " ").trim();
+    stable = String(stable || "").replace(/\s+/g, " ").trim();
+    if (!incoming) return { stable: stable, interim: "" };
+    if (stable && (incoming === stable || incoming.indexOf(stable) === 0)) {
+      incoming = incoming.slice(stable.length).trim();
+    }
+    if (!isFinal) return { stable: stable, interim: incoming };
+    return { stable: joinFast(stable, incoming), interim: "" };
+  }
+
+  function acquireWake() {
+    if (!navigator.wakeLock || !navigator.wakeLock.request) return;
+    navigator.wakeLock.request("screen").then(function (lock) {
+      if (!fastOn) {
+        if (lock && lock.release) lock.release().catch(function () {});
+        return;
+      }
+      fastWake = lock;
+    }).catch(function () {});
+  }
+
+  function releaseWake() {
+    var lock = fastWake;
+    fastWake = null;
+    if (lock && lock.release) lock.release().catch(function () {});
+  }
+
+  function ensureFastItem() {
+    if (fastItem && !fastItem.fastClosed && records.indexOf(fastItem) !== -1) return fastItem;
+    if (demo) {
+      records = [];
+      demo = false;
+    }
+    fastItem = {
+      id: Date.now() + records.length,
+      startMs: sessionMs(),
+      srcLang: settings.lang1,
+      srcText: "",
+      tgtLang: settings.lang2,
+      tgtText: "번역 중",
+      status: "translating",
+      engine: "webspeech",
+      fastStable: "",
+      fastInterim: "",
+      fastSent: "",
+      fastSentAt: 0,
+      fastSeq: 0,
+      fastClosed: false
+    };
+    records.push(fastItem);
+    return fastItem;
+  }
+
+  function scheduleFastTranslate(item, immediate) {
+    if (!item) return;
+    if (item.fastTimer) clearTimeout(item.fastTimer);
+    item.fastTimer = 0;
+    var wait = window.RtbClean.fastTranslateWait({
+      full: item.srcText,
+      sent: item.fastSent || "",
+      sentAt: item.fastSentAt || 0,
+      now: Date.now(),
+      immediate: !!immediate
+    });
+    if (wait < 0) return;
+    item.fastTimer = setTimeout(function () {
+      item.fastTimer = 0;
+      sendFastTranslate(item);
+    }, wait);
+  }
+
+  function sendFastTranslate(item) {
+    var full = String(item && item.srcText || "").trim();
+    if (!item || !full || full === item.fastSent) return;
+    item.fastSent = full;
+    item.fastSentAt = Date.now();
+    item.fastSeq = (item.fastSeq || 0) + 1;
+    if (item.fastAbort) {
+      try { item.fastAbort.abort(); } catch (e) {}
+    }
+    item.fastAbort = typeof AbortController === "function" ? new AbortController() : null;
+    translateItem(item, {
+      signal: item.fastAbort ? item.fastAbort.signal : null,
+      seq: item.fastSeq
+    });
+  }
+
+  function publishFastLine(immediate) {
+    var full = joinFast(fastStable, fastInterim);
+    if (!full) return;
+    var item = ensureFastItem();
+    item.srcLang = settings.lang1;
+    item.tgtLang = item.srcLang === settings.lang1 ? settings.lang2 : settings.lang1;
+    item.srcText = full;
+    item.fastStable = fastStable;
+    item.fastInterim = fastInterim;
+    item.status = "translating";
+    saveRecords();
+    follow = true;
+    render();
+    scheduleFastTranslate(item, !!immediate);
+  }
+
+  function closeFastSentence() {
+    if (fastCloseTimer) clearTimeout(fastCloseTimer);
+    fastCloseTimer = 0;
+    var item = fastItem;
+    if (item && !item.fastClosed) {
+      if (fastInterim) {
+        fastStable = joinFast(fastStable, fastInterim);
+        fastInterim = "";
+      }
+      item.fastInterim = "";
+      item.fastStable = fastStable || item.srcText || "";
+      item.srcText = item.fastStable;
+      item.fastClosed = true;
+      if (item.srcText) scheduleFastTranslate(item, true);
+      saveRecords();
+      render();
+    }
+    fastItem = null;
+    fastStable = "";
+    fastInterim = "";
+  }
+
+  function scheduleFastClose() {
+    if (fastCloseTimer) clearTimeout(fastCloseTimer);
+    fastCloseTimer = setTimeout(function () {
+      fastCloseTimer = 0;
+      closeFastSentence();
+    }, 1600);
+  }
+
+  function onFastResult(event) {
+    if (fastCloseTimer) {
+      clearTimeout(fastCloseTimer);
+      fastCloseTimer = 0;
+    }
+    var finalChunk = "";
+    var interimChunk = "";
+    var results = event && event.results ? event.results : [];
+    var start = event && typeof event.resultIndex === "number" ? event.resultIndex : 0;
+    var i;
+    for (i = start; i < results.length; i++) {
+      var piece = "";
+      try { piece = String(results[i][0].transcript || ""); } catch (e) { piece = ""; }
+      if (results[i].isFinal) finalChunk += piece;
+      else interimChunk += piece;
+    }
+    var gotFinal = !!String(finalChunk).trim();
+    if (gotFinal) {
+      var absorbed = absorbFast(fastStable, finalChunk, true);
+      fastStable = absorbed.stable;
+    }
+    if (String(interimChunk).trim()) {
+      var live = absorbFast(fastStable, interimChunk, false);
+      fastStable = live.stable;
+      fastInterim = live.interim;
+    } else if (gotFinal) {
+      fastInterim = "";
+    }
+    var done = gotFinal && !fastInterim && (window.RtbClean.fastEndsSentence(fastStable) || String(fastStable).length >= 80);
+    publishFastLine(gotFinal || done);
+    if (done) closeFastSentence();
+  }
+
+  function fastErrorText(code) {
+    if (code === "no-speech") return "말이 들리지 않아 인식을 다시 시작합니다";
+    if (code === "network") return "음성 인식 서버에 연결하지 못했습니다. 잠시 후 다시 시도합니다";
+    if (code === "not-allowed") return "마이크 사용이 거부되었습니다. 브라우저 설정에서 마이크를 허용하세요";
+    if (code === "service-not-allowed") return "이 브라우저에서 음성 인식을 쓸 수 없습니다";
+    if (code === "audio-capture") return "마이크를 열지 못했습니다. 다른 앱이 쓰고 있으면 끄고 다시 누르세요";
+    if (code === "language-not-supported") return "고른 언어의 음성 인식을 이 브라우저가 지원하지 않습니다";
+    return "음성 인식이 멈추어 다시 시작합니다";
+  }
+
+  function haltFast(message) {
+    fastOn = false;
+    fastStatus = message;
+    toast(message);
+    setMicUi(false);
+    releaseWake();
+    if (timerOn) setRunning(false);
+    else refreshStatus();
+  }
+
+  function onFastError(ev, rec) {
+    if (fastRec !== rec) return;
+    var code = ev && ev.error ? String(ev.error) : "";
+    if (code === "aborted") return;
+    var message = fastErrorText(code);
+    if (code === "not-allowed" || code === "service-not-allowed" || code === "language-not-supported") {
+      haltFast(message);
+      return;
+    }
+    if (code === "network" || code === "audio-capture") {
+      fastFailStreak += 1;
+      fastRetryMs = 800;
+      fastStatus = message;
+      refreshStatus();
+      if (fastFailStreak === 1) toast(message);
+      if (fastFailStreak >= 5) haltFast("여러 번 연결하지 못해 빠른 자막을 멈췄습니다");
+      return;
+    }
+    fastRetryMs = 250;
+    fastStatus = message;
+    refreshStatus();
+  }
+
+  function onFastEnd(rec) {
+    if (fastRec !== rec) return;
+    if (fastInterim) {
+      fastStable = joinFast(fastStable, fastInterim);
+      fastInterim = "";
+      publishFastLine(true);
+    }
+    scheduleFastClose();
+    if (!fastOn) return;
+    var delay = fastRetryMs || 250;
+    fastRetryMs = 250;
+    if (fastRestartTimer) clearTimeout(fastRestartTimer);
+    fastRestartTimer = setTimeout(function () {
+      fastRestartTimer = 0;
+      if (!fastOn) return;
+      openFastRec();
+    }, delay);
+  }
+
+  function openFastRec() {
+    var Ctor = speechCtor();
+    if (!Ctor || !fastOn) return;
+    var previous = fastRec;
+    fastRec = null;
+    if (previous) {
+      try {
+        previous.onend = null;
+        previous.onerror = null;
+        previous.onresult = null;
+        previous.onstart = null;
+      } catch (e) {}
+      try { previous.abort(); } catch (e2) {}
+    }
+    var rec = new Ctor();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = speechLang(settings.lang1);
+    rec.onresult = onFastResult;
+    rec.onerror = function (ev) { onFastError(ev, rec); };
+    rec.onend = function () { onFastEnd(rec); };
+    rec.onstart = function () {
+      fastFailStreak = 0;
+      fastStatus = "빠른 자막 듣는 중 · " + langName(settings.lang1);
+      refreshStatus();
+    };
+    fastRec = rec;
+    try {
+      rec.start();
+    } catch (err) {
+      fastStatus = "음성 인식을 시작하지 못했습니다";
+      refreshStatus();
+      toast(fastStatus);
+    }
+  }
+
+  function startFastCaption() {
+    if (!speechCtor()) {
+      showFastUnsupported();
+      return;
+    }
+    if (micStream || micStarting) disconnectMic();
+    if (el.player && !el.player.paused) el.player.pause();
+    fastOn = true;
+    fastFailStreak = 0;
+    fastRetryMs = 250;
+    fastStatus = "빠른 자막 연결 중";
+    setMicUi(true);
+    setRunning(true);
+    acquireWake();
+    openFastRec();
+  }
+
+  function stopFastCaption() {
+    var wasOn = fastOn;
+    fastOn = false;
+    fastStatus = "";
+    fastFailStreak = 0;
+    if (fastRestartTimer) clearTimeout(fastRestartTimer);
+    fastRestartTimer = 0;
+    if (fastCloseTimer) clearTimeout(fastCloseTimer);
+    fastCloseTimer = 0;
+    var rec = fastRec;
+    fastRec = null;
+    if (rec) {
+      try {
+        rec.onend = null;
+        rec.onerror = null;
+        rec.onresult = null;
+        rec.onstart = null;
+      } catch (e) {}
+      try { rec.abort(); } catch (e2) {}
+    }
+    closeFastSentence();
+    releaseWake();
+    setMicUi(false);
+    if (wasOn) setRunning(false);
+    else refreshStatus();
   }
 
   function windowBounds(index, sec) {
@@ -3611,6 +4228,12 @@
   }
 
   async function toggleMic() {
+    if (cutMode() === "fast") {
+      if (fastOn) stopFastCaption();
+      else startFastCaption();
+      return;
+    }
+    if (fastOn) stopFastCaption();
     if (micStream || micStarting) {
       disconnectMic();
       return;
@@ -3790,14 +4413,19 @@
     commitSettings("설정을 저장했습니다.");
   });
   document.getElementById("pcApplyBtn").addEventListener("click", function () {
-    applyPcSettings();
+    applyPcSettings("asr");
+  });
+  document.getElementById("trPcApplyBtn").addEventListener("click", function () {
+    applyPcSettings("tr");
   });
   document.getElementById("modeTest").addEventListener("click", function () { setAppMode("test"); });
   document.getElementById("modeTalk").addEventListener("click", function () { setAppMode("talk"); });
   document.getElementById("cutOverlap").addEventListener("click", function () { setCutMode("overlap"); });
   document.getElementById("cutCut").addEventListener("click", function () { setCutMode("cut"); });
   document.getElementById("cutPause").addEventListener("click", function () { setCutMode("pause"); });
+  document.getElementById("cutFast").addEventListener("click", function () { setCutMode("fast"); });
   document.getElementById("defaultBtn").addEventListener("click", function () {
+    if (fastOn) stopFastCaption();
     settings = Object.assign({}, defaults);
     settings.trModelIds = [];
     settings.asrModelIds = [];
@@ -3969,6 +4597,9 @@
   timerId = setInterval(tick, 200);
   window.addEventListener("beforeunload", function () {
     saveRecords();
+  });
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible" && fastOn) acquireWake();
   });
 })();
 </script>

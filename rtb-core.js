@@ -175,6 +175,42 @@
     return mapSamples(samples, function (x) { return softLimit(x * gain); });
   }
 
+  // 빠른 자막 번역 묶음.
+  // 새 말이 4단어(띄어쓰기 없으면 12자)이거나 문장이 끝나면 보내고,
+  // 그보다 짧으면 450ms 쉼 뒤에 보낸다.
+  // 직전 요청 후 400ms가 안 지났으면 그 시간까지 기다린다. 확정은 기다리지 않는다.
+  function fastUnitCount(text) {
+    var t = String(text || "").trim();
+    if (!t) return 0;
+    if (/\s/.test(t)) return t.split(/\s+/).length;
+    return t.replace(/\s/g, "").length;
+  }
+
+  function fastDelta(full, sent) {
+    var src = String(full || "").trim();
+    var prev = String(sent || "").trim();
+    if (!src || src === prev) return "";
+    if (prev && src.indexOf(prev) === 0) return src.slice(prev.length).trim();
+    return src;
+  }
+
+  function fastEndsSentence(text) {
+    return /[.?!…。？！]$/.test(String(text || "").trim());
+  }
+
+  function fastTranslateWait(spec) {
+    spec = spec || {};
+    var delta = fastDelta(spec.full, spec.sent);
+    if (!delta) return -1;
+    var enough = fastUnitCount(delta) >= (/\s/.test(delta) ? 4 : 12);
+    var hot = !!spec.immediate || enough || fastEndsSentence(spec.full);
+    if (!hot) return 450;
+    if (spec.immediate) return 0;
+    if (!spec.sentAt) return 0;
+    var wait = 400 - ((spec.now || 0) - spec.sentAt);
+    return wait > 0 ? wait : 0;
+  }
+
   return {
     EMPTY_RECENT: EMPTY_RECENT,
     PC_MODELS: PC_MODELS,
@@ -189,6 +225,10 @@
     pcHeaders: pcHeaders,
     pcmRms: pcmRms,
     pcmPeak: pcmPeak,
-    applyMicLevel: applyMicLevel
+    applyMicLevel: applyMicLevel,
+    fastUnitCount: fastUnitCount,
+    fastDelta: fastDelta,
+    fastEndsSentence: fastEndsSentence,
+    fastTranslateWait: fastTranslateWait
   };
 });

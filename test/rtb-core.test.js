@@ -119,6 +119,29 @@ assert.ok(core.pcmPeak(clippedOut) <= 1);
 const silence = new Float32Array(400);
 assert.strictEqual(core.applyMicLevel(silence, "high"), silence);
 
+assert.strictEqual(core.fastTranslateWait({ full: "안녕", sent: "", now: 1000 }), 450);
+assert.strictEqual(core.fastTranslateWait({ full: "하나 둘 셋", sent: "", now: 1000 }), 450);
+assert.strictEqual(core.fastTranslateWait({ full: "one two three four", sent: "", now: 5000 }), 0);
+assert.strictEqual(core.fastTranslateWait({
+  full: "one two three four five six seven eight",
+  sent: "one two three four",
+  sentAt: 1000,
+  now: 1200
+}), 200);
+assert.strictEqual(core.fastTranslateWait({
+  full: "하나 둘",
+  sent: "",
+  immediate: true,
+  now: 1000
+}), 0);
+assert.strictEqual(core.fastTranslateWait({ full: "끝.", sent: "", now: 1000 }), 0);
+assert.strictEqual(core.fastTranslateWait({ full: "같은 문장", sent: "같은 문장", now: 1000 }), -1);
+assert.strictEqual(core.fastUnitCount("가나다라마바사아자차카타"), 12);
+assert.strictEqual(core.fastTranslateWait({ full: "가나다라마바사아자차카타", sent: "", now: 1000 }), 0);
+assert.strictEqual(core.fastDelta("안녕 하세요", "안녕"), "하세요");
+assert.strictEqual(core.fastEndsSentence("문장."), true);
+assert.strictEqual(core.fastEndsSentence("문장"), false);
+
 console.log("rtb-core tests ok");
 console.log("low-rms-ratio", ratioLow.toFixed(3), "high-rms-ratio", ratioHigh.toFixed(3));
 console.log("low-peak", core.pcmPeak(quieted).toFixed(3), "high-peak", core.pcmPeak(boosted).toFixed(3));
