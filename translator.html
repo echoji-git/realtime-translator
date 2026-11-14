@@ -122,6 +122,11 @@
   .hint { color: var(--muted); font-size: 12px; line-height: 1.45; }
   .dev-history { margin: 4px 0 0; padding-left: 1.1em; }
   .dev-history li { margin: 2px 0; }
+  .dev-note { margin: 6px 0 2px; }
+  .dev-plan { margin: 4px 0 6px; }
+  .dev-plan div { margin: 0 0 6px; padding-top: 4px; border-top: 1px solid var(--line); }
+  .dev-plan dt { color: var(--accent); }
+  .dev-plan dd { margin: 0; }
   #fileList, #scriptList { list-style: none; padding: 0; margin: 8px 0; }
   #fileList li, #scriptList li { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 6px; font-size: 13px; }
   #scriptList span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -332,7 +337,19 @@
         <p id="modeHint" class="hint">Test모드는 음성 파일로 확인합니다.</p>
         <p id="devVersion" class="hint">개발Version 정보 : v1.01 (261114)</p>
         <ul id="devHistory" class="hint dev-history">
-          <li>v1.01 (261114) : 전사로 들어가는 마이크와 파일 소리를 녹음앱처럼 키우고 선명하게 처리함. 80 Hz 아래를 걷고, 3 kHz를 올리고, 작은 소리는 4배로 키운 뒤 큰 소리는 누름.</li>
+          <li>v1.01 (261114) : 전사로 들어가는 마이크와 파일 소리를 녹음앱처럼 키우고 선명하게 처리함. 80 Hz 아래를 걷고, 3 kHz를 올리고, 작은 소리는 4배로 키운 뒤 큰 소리는 누름.
+            <p class="dev-note">주석 · 로컬 데스크탑에서 쓸 수준 (예정)</p>
+            <dl class="dev-plan">
+              <div>
+                <dt>받아쓰기 · Whisper base</dt>
+                <dd>small보다 가볍고, 한국어·영어 회의에서 tiny보다 글이 덜 무너집니다.</dd>
+              </div>
+              <div>
+                <dt>번역 · gemma3:1b 같은 1B급</dt>
+                <dd>짧은 문장 번역이면 충분하고, 4B가 차지하던 카드 시간을 받아쓰기에 돌려줍니다.</dd>
+              </div>
+            </dl>
+          </li>
           <li>v1.00 (261114) : 세부 설정 아래에 개발 버전을 표시함.</li>
         </ul>
       </div>
