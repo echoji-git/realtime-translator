@@ -58,6 +58,7 @@
   .tgt { font-size: var(--tgt-size); color: var(--tgt-color); font-weight: 650; line-height: 1.35; margin-top: 2px; }
   .only { font-size: var(--tgt-size); color: var(--tgt-color); font-weight: 650; line-height: 1.35; }
   .interim { color: #9aa8b8; font-size: var(--src-size); font-style: italic; }
+  .hold { opacity: 0.55; }
   .meta { color: var(--muted); font-size: 12px; margin-bottom: 2px; }
   #jumpBtn { position: absolute; right: 24px; bottom: 84px; display: none; }
   #controls {
@@ -248,12 +249,19 @@
     </section>
     <section class="fold" data-fold="segment">
       <button class="fold-btn" type="button" aria-expanded="false" aria-controls="fold-segment">
-        <span>3. 분절 길이</span><span class="fold-mark" aria-hidden="true">▸</span>
+        <span>3. 전사 옵션</span><span class="fold-mark" aria-hidden="true">▸</span>
       </button>
       <div id="fold-segment" class="fold-body" hidden>
+        <label>전사 옵션</label>
+        <div class="mode-switch" role="group" aria-label="전사 옵션">
+          <button id="cutOverlap" class="bar-btn" type="button">겹침</button>
+          <button id="cutCut" class="bar-btn" type="button">분절</button>
+          <button id="cutPause" class="bar-btn" type="button">기존</button>
+        </div>
         <label for="segment">분절 길이 <span id="segmentVal"></span></label>
         <input id="segment" type="range" min="1" max="5" step="1">
-        <p class="hint">이 초마다 오디오를 한 번씩 보냅니다. 경계 0.2초를 겹칩니다. 1초면 0–1.2초, 다음이 0.8–2.2초입니다. 다음 구간이 잘린 단어를 더 온전히 들으면 그 단어로 앞 끝을 바꿉니다.</p>
+        <p id="segmentHint" class="hint"></p>
+        <p class="hint">이 옵션은 PC API, Gemini 음성, 기기 내 Whisper에 적용됩니다. 기기 내 SenseVoice는 자기 구간을 그대로 씁니다.</p>
       </div>
     </section>
     <section class="fold" data-fold="screen">
@@ -330,13 +338,13 @@
           <button id="modeTalk" class="bar-btn" type="button">대화모드</button>
         </div>
         <p id="modeHint" class="hint">Test모드는 음성 파일로 확인합니다.</p>
-        <p id="devVersion" class="hint">개발Version 정보 : v1.031 (261114)</p>
+        <p id="devVersion" class="hint">개발Version 정보 : v1.032 (261114)</p>
         <ul id="devHistory" class="hint dev-history">
-          <li>v1.00(261114) : 세부 설정에 개발 버전을 표시</li>
           <li>v1.01(261114) : 전사로 들어가는 소리를 키우고 선명하게 처리</li>
           <li>v1.02(261114) : 쉬거나 8–15초가 차면 그 구간만 한 번 전송</li>
           <li>v1.03(261114) : 분절 초마다 0.2초를 겹쳐 보내고 말과 번역을 이어 붙임</li>
           <li>v1.031(261114) : 겹친 구간의 잘린 단어를 다음 인식으로 고쳐 잇는다</li>
+          <li>v1.032(261114) : 전사 옵션에서 겹침, 분절, 기존 중 하나를 고른다</li>
         </ul>
       </div>
     </section>
@@ -396,7 +404,7 @@
     lang1: "ko", lang2: "en", displayMode: "both",
     bgColor: "#0e1a2b", bgImage: "",
     srcSize: 20, tgtSize: 36, srcColor: "#d5dbe3", tgtColor: "#ffffff",
-    maxItems: 0, segment: 1,
+    maxItems: 0, segment: 1, cutMode: "overlap",
     asrRoute: "gemini", localAsr: "sensevoice",
     asrKey: "", asrModel: "", asrModelIds: [],
     trRoute: "gemini", trKey: "", trModel: "", trModelIds: [],
@@ -557,6 +565,7 @@
     rememberModelId(s.asrModelIds, s.geminiModel);
     if (s.trModel === "__new__") s.trModel = "";
     if (s.asrModel === "__new__") s.asrModel = "";
+    if (s.cutMode !== "overlap" && s.cutMode !== "cut" && s.cutMode !== "pause") s.cutMode = "overlap";
     return s;
   }
 
@@ -642,6 +651,7 @@
     document.getElementById("tgtColor").value = settings.tgtColor;
     document.getElementById("maxItems").value = settings.maxItems;
     document.getElementById("segment").value = settings.segment;
+    paintCutMode();
     document.getElementById("trKey").value = settings.trKey || "";
     document.getElementById("asrKey").value = settings.asrKey || "";
     document.getElementById("pcBase").value = settings.pcBase || "";
@@ -978,7 +988,7 @@
     }
     var stream = micStream;
     var node = micNode;
-    var keepEnergy = segmentKind() === "energy" && pendingCoreSamples() >= 1600;
+    var keepEnergy = segmentKind() === "energy" && (cutMode() === "pause" ? uttCount >= 3200 : pendingCoreSamples() >= 1600);
     var keepSense = segmentKind() === "sense";
     micStream = null;
     micNode = null;
@@ -1019,6 +1029,20 @@
     }
   }
 
+  function fillHeld(node, text, hold) {
+    node.textContent = "";
+    var parts = splitHold(text, hold);
+    if (!parts.tail) {
+      node.textContent = parts.stable;
+      return;
+    }
+    if (parts.stable) node.appendChild(document.createTextNode(parts.stable));
+    var span = document.createElement("span");
+    span.className = "hold";
+    span.textContent = parts.tail;
+    node.appendChild(span);
+  }
+
   function chosenText(item) {
     var mode = settings.displayMode;
     if (mode === "both") return null;
@@ -1055,7 +1079,7 @@
       if (single === null) {
         var src = document.createElement("div");
         src.className = "src";
-        src.textContent = item.srcText;
+        fillHeld(src, item.srcText, item.hold);
         var tgt = document.createElement("div");
         tgt.className = "tgt";
         tgt.textContent = item.tgtText || "번역 전";
@@ -1064,7 +1088,9 @@
       } else {
         var only = document.createElement("div");
         only.className = "only";
-        only.textContent = single;
+        var want = settings.displayMode === "lang1" ? settings.lang1 : settings.lang2;
+        if (item.srcLang === want) fillHeld(only, item.srcText, item.hold);
+        else only.textContent = single;
         box.appendChild(only);
       }
       root.appendChild(box);
@@ -2132,60 +2158,114 @@
     refreshStatus();
   }
 
-  function mergeHeard(prev, next) {
-    function compact(value) {
-      var raw = String(value || "").replace(/\s+/g, " ").trim();
-      var chars = "";
-      var map = [];
-      var i = 0;
-      for (i = 0; i < raw.length; i++) {
-        if (raw.charAt(i) === " ") continue;
-        chars += raw.charAt(i);
-        map.push(i);
+  function compactHeard(value) {
+    var raw = String(value || "").replace(/\s+/g, " ").trim();
+    var chars = "";
+    var map = [];
+    var i = 0;
+    for (i = 0; i < raw.length; i++) {
+      if (raw.charAt(i) === " ") continue;
+      chars += raw.charAt(i);
+      map.push(i);
+    }
+    return { raw: raw, chars: chars, map: map };
+  }
+
+  function joinHeard(left, right) {
+    var leftSpace = /\s$/.test(left);
+    left = String(left || "").replace(/\s+$/, "");
+    right = String(right || "").replace(/^\s+/, "");
+    if (!left) return right;
+    if (!right) return left;
+    if (leftSpace || (/[A-Za-z0-9]$/.test(left) && /^[A-Za-z0-9]/.test(right))) return left + " " + right;
+    return left + right;
+  }
+
+  function editDistance(a, b, cap) {
+    var n = a.length;
+    var m = b.length;
+    if (Math.abs(n - m) > cap) return cap + 1;
+    var prev = [];
+    var j = 0;
+    for (j = 0; j <= m; j++) prev[j] = j;
+    var i = 0;
+    for (i = 1; i <= n; i++) {
+      var cur = [i];
+      var rowMin = i;
+      for (j = 1; j <= m; j++) {
+        var cost = a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1;
+        var v = prev[j] + 1;
+        if (cur[j - 1] + 1 < v) v = cur[j - 1] + 1;
+        if (prev[j - 1] + cost < v) v = prev[j - 1] + cost;
+        cur[j] = v;
+        if (v < rowMin) rowMin = v;
       }
-      return { raw: raw, chars: chars, map: map };
+      if (rowMin > cap) return cap + 1;
+      prev = cur;
     }
-    function tailMismatch(suffix, prefix) {
-      if (!suffix || suffix.length !== prefix.length) return 99;
-      if (suffix.charAt(0) !== prefix.charAt(0)) return 99;
-      var mismatches = 0;
-      var firstBad = -1;
-      var i = 0;
-      for (i = 0; i < suffix.length; i++) {
-        if (suffix.charAt(i) !== prefix.charAt(i)) {
-          mismatches += 1;
-          if (firstBad < 0) firstBad = i;
-        }
-      }
-      if (mismatches > (suffix.length >= 6 ? 2 : 1)) return 99;
-      if (firstBad >= 0 && firstBad < suffix.length - 2) return 99;
-      return mismatches;
-    }
-    function joinTexts(left, right) {
-      var leftSpace = /\s$/.test(left);
-      left = left.replace(/\s+$/, "");
-      right = right.replace(/^\s+/, "");
-      if (!left) return right;
-      if (!right) return left;
-      if (leftSpace || /[A-Za-z0-9]$/.test(left) && /^[A-Za-z0-9]/.test(right)) return left + " " + right;
-      return left + right;
-    }
-    var before = compact(prev);
-    var after = compact(next);
+    return prev[m];
+  }
+
+  function stitchHeard(prev, next, prevDur) {
+    var before = compactHeard(prev);
+    var after = compactHeard(next);
     if (!before.chars) return after.raw;
     if (!after.chars) return before.raw;
     if (before.chars === after.chars) return before.raw;
-    var maxK = Math.min(before.chars.length, after.chars.length, 24);
-    var bestK = 0;
-    var k = 0;
-    for (k = maxK; k >= 2; k--) {
-      if (tailMismatch(before.chars.slice(before.chars.length - k), after.chars.slice(0, k)) <= (k >= 6 ? 2 : 1)) {
-        bestK = k;
-        break;
+    var rate = prevDur > 0 ? before.chars.length / prevDur : 7;
+    var halo = Math.round(rate * 0.7);
+    if (halo < 4) halo = 4;
+    if (halo > 16) halo = 16;
+    var tailStartMin = Math.max(0, before.chars.length - halo * 2);
+    var best = null;
+    var i = 0;
+    var j = 0;
+    var li = 0;
+    var lj = 0;
+    for (i = tailStartMin; i < before.chars.length; i++) {
+      var maxSkip = Math.min(3, Math.max(0, after.chars.length - 2));
+      for (j = 0; j <= maxSkip; j++) {
+        var remainP = before.chars.length - i;
+        var remainN = after.chars.length - j;
+        var maxL = Math.min(remainP, remainN, halo + 4);
+        for (li = 2; li <= maxL; li++) {
+          var ljMax = Math.min(remainN, li + 6);
+          for (lj = li; lj <= ljMax; lj++) {
+            if (before.chars.charAt(i) !== after.chars.charAt(j)) continue;
+            var cap = (li >= 8 || lj >= 8) ? 2 : 1;
+            var d = editDistance(before.chars.slice(i, i + li), after.chars.slice(j, j + lj), cap);
+            if (d > cap) continue;
+            if (j > 0 && !(lj >= 4 && d === 0)) continue;
+            var endGap = before.chars.length - (i + li);
+            if (endGap > 2) continue;
+            var score = lj + li - d * 5 - j * 2 - endGap * 2;
+            if (!best || score > best.score) best = { i: i, j: j, score: score };
+          }
+        }
       }
     }
-    if (!bestK) return joinTexts(before.raw, after.raw);
-    return joinTexts(before.raw.slice(0, before.map[before.chars.length - bestK]), after.raw);
+    if (!best) return joinHeard(before.raw, after.raw);
+    return joinHeard(before.raw.slice(0, before.map[best.i]), after.raw.slice(after.map[best.j]));
+  }
+
+  function splitHold(text, hold) {
+    var packed = compactHeard(text);
+    var n = Math.round(Number(hold) || 0);
+    if (n < 1 || !packed.chars) return { stable: packed.raw, tail: "" };
+    if (n >= packed.chars.length) return { stable: "", tail: packed.raw };
+    var cut = packed.map[packed.chars.length - n];
+    return { stable: packed.raw.slice(0, cut), tail: packed.raw.slice(cut) };
+  }
+
+  function holdCount(text, durSec) {
+    var packed = compactHeard(text);
+    var dur = Number(durSec) || 0;
+    if (packed.chars.length < 2 || dur <= 0) return 0;
+    var n = Math.round(packed.chars.length * (0.4 / dur));
+    if (n < 1) n = 1;
+    if (n > 8) n = 8;
+    if (n >= packed.chars.length) n = packed.chars.length - 1;
+    return n;
   }
 
   function scheduleTranslate(item) {
@@ -2206,10 +2286,11 @@
     })();
   }
 
-  function continueTranscript(text, lang, engine, session) {
+  function continueTranscript(text, lang, engine, session, durSec) {
     if (session !== winSession) return;
     text = String(text || "").replace(/\s+/g, " ").trim();
     if (!text) return;
+    var dur = Number(durSec) || 0;
     if (!liveItem || liveItem.session !== session) {
       if (demo) {
         records = [];
@@ -2225,7 +2306,9 @@
         status: "translating",
         engine: engine,
         session: session,
-        growing: true
+        growing: true,
+        lastDur: dur,
+        hold: cutMode() === "overlap" ? holdCount(text, dur) : 0
       };
       liveItem.tgtLang = liveItem.srcLang === settings.lang1 ? settings.lang2 : settings.lang1;
       records.push(liveItem);
@@ -2238,13 +2321,18 @@
     }
     if (lang && liveItem.srcLang && lang !== liveItem.srcLang) {
       liveItem.growing = false;
+      liveItem.hold = 0;
       liveItem = null;
-      continueTranscript(text, lang, engine, session);
+      continueTranscript(text, lang, engine, session, dur);
       return;
     }
-    var merged = mergeHeard(liveItem.srcText, text);
+    var merged = cutMode() === "overlap"
+      ? stitchHeard(liveItem.srcText, text, liveItem.lastDur || 0)
+      : joinHeard(liveItem.srcText, text);
     if (merged === liveItem.srcText) return;
     liveItem.srcText = merged;
+    liveItem.lastDur = dur;
+    liveItem.hold = cutMode() === "overlap" ? holdCount(text, dur) : 0;
     liveItem.status = "translating";
     saveRecords();
     follow = true;
@@ -2377,13 +2465,64 @@
     return sec;
   }
 
+  function cutMode() {
+    if (settings.cutMode === "cut" || settings.cutMode === "pause") return settings.cutMode;
+    return "overlap";
+  }
+
+  function pausePlan() {
+    var step = segmentSeconds();
+    return {
+      step: step,
+      silence: [500, 700, 900, 1100, 1300][step - 1],
+      max: [5, 7, 9, 11, 13][step - 1]
+    };
+  }
+
   function paintSegmentLabel() {
-    document.getElementById("segmentVal").textContent = segmentSeconds() + "초";
+    var node = document.getElementById("segmentVal");
+    if (!node) return;
+    if (cutMode() === "pause") {
+      var plan = pausePlan();
+      node.textContent = "쉼 " + (plan.silence / 1000) + "초 · 최대 " + plan.max + "초";
+      return;
+    }
+    node.textContent = segmentSeconds() + "초";
+  }
+
+  function paintCutMode() {
+    var mode = cutMode();
+    document.getElementById("cutOverlap").classList.toggle("active", mode === "overlap");
+    document.getElementById("cutCut").classList.toggle("active", mode === "cut");
+    document.getElementById("cutPause").classList.toggle("active", mode === "pause");
+    document.getElementById("cutOverlap").setAttribute("aria-pressed", mode === "overlap" ? "true" : "false");
+    document.getElementById("cutCut").setAttribute("aria-pressed", mode === "cut" ? "true" : "false");
+    document.getElementById("cutPause").setAttribute("aria-pressed", mode === "pause" ? "true" : "false");
+    var hint = document.getElementById("segmentHint");
+    if (hint) {
+      hint.textContent = mode === "pause"
+        ? "말이 쉬거나 최대 길이가 차면 그 구간을 한 번만 보냅니다. 1은 쉼 0.5초·최대 5초, 5는 쉼 1.3초·최대 13초입니다."
+        : mode === "cut"
+          ? "이 초마다 겹침 없이 자릅니다. 각 조각은 따로 받아쓰고, 앞 소리를 이어서 듣지 않습니다. 글만 같은 줄에 붙입니다."
+          : "이 초마다 보냅니다. 경계 0.2초를 다음 조각과 같이 듣고, 그 끝단어는 흐리게 두었다가 다음 인식으로 고칩니다.";
+    }
+    paintSegmentLabel();
+  }
+
+  function setCutMode(mode) {
+    if (mode !== "overlap" && mode !== "cut" && mode !== "pause") return;
+    settings.cutMode = mode;
+    beginWindowSession();
+    extSilence = 0;
+    extVoiced = false;
+    resetUttBuffers();
+    paintCutMode();
+    updateSaveState();
   }
 
   function windowBounds(index, sec) {
     var span = Math.round(16000 * sec);
-    var overlap = Math.round(16000 * 0.2);
+    var overlap = cutMode() === "overlap" ? Math.round(16000 * 0.2) : 0;
     var coreStart = index * span;
     var coreEnd = coreStart + span;
     return {
@@ -2408,7 +2547,10 @@
   function beginWindowSession() {
     winSession += 1;
     resetWindowClock();
-    if (liveItem) liveItem.growing = false;
+    if (liveItem) {
+      liveItem.growing = false;
+      liveItem.hold = 0;
+    }
     liveItem = null;
   }
 
@@ -2467,7 +2609,40 @@
     }
   }
 
+  function feedPause(samples, sampleRate) {
+    var pcm = downsample(samples, sampleRate);
+    var voiced = pcmRms(pcm) > 0.02;
+    if (micStream) {
+      voiced = pcmLevel(pcm) >= 8;
+      if (!extVoiced) {
+        pushMicPre(pcm);
+        if (voiced) micRun += pcm.length;
+        else micRun = Math.max(0, micRun - pcm.length);
+        if (micRun >= (pausePlan().step <= 2 ? 2400 : 4800)) {
+          extVoiced = true;
+          extSilence = 0;
+          micRun = 0;
+          takeMicPre();
+        }
+        return;
+      }
+    }
+    if (voiced) {
+      extVoiced = true;
+      extSilence = 0;
+      addUtt(pcm);
+    } else if (extVoiced) {
+      extSilence += pcm.length;
+    }
+    var plan = pausePlan();
+    if (extVoiced && (extSilence >= 16000 * plan.silence / 1000 || uttCount >= 16000 * plan.max)) flushExternal();
+  }
+
   function feedExternal(samples, sampleRate) {
+    if (cutMode() === "pause") {
+      feedPause(samples, sampleRate);
+      return;
+    }
     var pcm = downsample(samples, sampleRate);
     if (!pcm || !pcm.length || dropUtt) return;
     if (micStream) uttMic = true;
@@ -2505,8 +2680,17 @@
     extSilence = 0;
     extVoiced = false;
     if (segmentKind() !== "energy") return;
+    if (cutMode() === "pause") {
+      finishUtterance(takeUtt());
+      return;
+    }
     emitReadyWindows(true);
-    if (liveItem) liveItem.growing = false;
+    if (liveItem) {
+      liveItem.growing = false;
+      liveItem.hold = 0;
+      saveRecords();
+      render();
+    }
   }
 
   function resetUttBuffers() {
@@ -2889,7 +3073,7 @@
         render();
         return;
       }
-      if (session != null) continueTranscript(geminiText, heard.lang, settings.asrRoute === "pc" ? "pc-whisper" : "gemini", session);
+      if (session != null) continueTranscript(geminiText, heard.lang, settings.asrRoute === "pc" ? "pc-whisper" : "gemini", session, samples.length / 16000);
       else pushTranscript(geminiText, heard.lang, settings.asrRoute === "pc" ? "pc-whisper" : "gemini", stamp != null && stamp !== partialGen);
       return;
     }
@@ -2940,7 +3124,7 @@
     text = repeatedTake(text);
     if (stamp == null || stamp === partialGen) interim = "";
     if (text) {
-      if (session != null) continueTranscript(text, lang, engine, session);
+      if (session != null) continueTranscript(text, lang, engine, session, samples.length / 16000);
       else pushTranscript(text, lang, engine, stamp != null && stamp !== partialGen);
     }
   }
@@ -3430,6 +3614,9 @@
   });
   document.getElementById("modeTest").addEventListener("click", function () { setAppMode("test"); });
   document.getElementById("modeTalk").addEventListener("click", function () { setAppMode("talk"); });
+  document.getElementById("cutOverlap").addEventListener("click", function () { setCutMode("overlap"); });
+  document.getElementById("cutCut").addEventListener("click", function () { setCutMode("cut"); });
+  document.getElementById("cutPause").addEventListener("click", function () { setCutMode("pause"); });
   document.getElementById("defaultBtn").addEventListener("click", function () {
     settings = Object.assign({}, defaults);
     settings.trModelIds = [];
