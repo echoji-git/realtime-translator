@@ -164,8 +164,11 @@
           <option value="gemini">Gemini 음성</option>
           <option value="pc">PC API</option>
           <option value="local">기기 내</option>
+          <option value="chrome">크롬 전사</option>
           <option value="none">연결 안 함</option>
         </select>
+        <p id="chromeSupportHint" class="hint bad" hidden></p>
+        <p id="fastGoogleHint" class="hint" hidden>크롬 전사를 쓰면 말한 소리가 구글 서버로 전송됩니다.</p>
         <div id="localAsrRow">
           <label for="localAsr">기기 내 모델</label>
           <select id="localAsr">
@@ -242,7 +245,7 @@
           <p id="pcTrBaseNote" class="hint"></p>
           <label for="pcTrKey">비밀 키</label>
           <input id="pcTrKey" type="password" autocomplete="off" spellcheck="false" placeholder="이 브라우저에만 저장">
-          <p class="hint">비밀 키는 이 브라우저에만 저장됩니다. 번역은 /api/chat 으로 가며 이 키를 붙입니다. 비워 두면 전사 쪽 비밀 키를 씁니다. 빠른 자막으로 받아써도 번역은 이 주소로 갑니다.</p>
+          <p class="hint">비밀 키는 이 브라우저에만 저장됩니다. 번역은 /api/chat 으로 가며 이 키를 붙입니다. 비워 두면 전사 쪽 비밀 키를 씁니다. 크롬 전사로 받아써도 번역은 이 주소로 갑니다.</p>
           <div id="trPcModelSlot"></div>
           <button id="trPcApplyBtn" class="bar-btn" type="button">적용</button>
           <p id="trPcApplyNote" class="hint"></p>
@@ -310,18 +313,19 @@
           <option value="high">크게</option>
         </select>
         <p id="micLevelHint" class="hint">기본은 지금과 같습니다. 작게는 큰 소리를 낮추고, 크게는 작은 소리를 키웁니다. 소리는 잘라서 깨지지 않게 합니다. Gemini와 PC API로 보내기 전에 적용됩니다. 저장을 누르면 이 브라우저에 남습니다.</p>
-        <label>전사 옵션</label>
-        <div class="mode-switch" role="group" aria-label="전사 옵션">
-          <button id="cutOverlap" class="bar-btn" type="button">겹침</button>
-          <button id="cutCut" class="bar-btn" type="button">분절</button>
-          <button id="cutPause" class="bar-btn" type="button">기존</button>
-          <button id="cutFast" class="bar-btn" type="button">빠른 자막</button>
+        <p id="chromeCutNote" class="hint" hidden>크롬 전사에서는 적용되지 않음</p>
+        <div id="cutOptionBlock">
+          <label>전사 옵션</label>
+          <div class="mode-switch" role="group" aria-label="전사 옵션">
+            <button id="cutOverlap" class="bar-btn" type="button">겹침</button>
+            <button id="cutCut" class="bar-btn" type="button">분절</button>
+            <button id="cutPause" class="bar-btn" type="button">기존</button>
+          </div>
+          <label for="segment">분절 길이 <span id="segmentVal"></span></label>
+          <input id="segment" type="range" min="1" max="5" step="1">
+          <p id="segmentHint" class="hint"></p>
+          <p class="hint">겹침, 분절, 기존은 PC API, Gemini 음성, 기기 내 Whisper에 적용됩니다. 크롬 전사는 브라우저 음성 인식을 쓰고, 기기 내 SenseVoice는 자기 구간을 그대로 씁니다.</p>
         </div>
-        <p id="fastGoogleHint" class="hint">빠른 자막을 고르면 말한 소리가 구글 서버로 전송됩니다.</p>
-        <label for="segment">분절 길이 <span id="segmentVal"></span></label>
-        <input id="segment" type="range" min="1" max="5" step="1">
-        <p id="segmentHint" class="hint"></p>
-        <p class="hint">겹침, 분절, 기존은 PC API, Gemini 음성, 기기 내 Whisper에 적용됩니다. 빠른 자막은 브라우저 음성 인식을 쓰고, 기기 내 SenseVoice는 자기 구간을 그대로 씁니다.</p>
       </div>
     </section>
     <section class="fold" data-fold="screen">
@@ -398,8 +402,9 @@
           <button id="modeTalk" class="bar-btn" type="button">대화모드</button>
         </div>
         <p id="modeHint" class="hint">Test모드는 음성 파일로 확인합니다.</p>
-        <p id="devVersion" class="hint">개발Version 정보 : v1.04 (261115)</p>
+        <p id="devVersion" class="hint">개발Version 정보 : v1.041 (261115)</p>
         <ul id="devHistory" class="hint dev-history">
+          <li>v1.041(261115) : 전사 제공자 드롭다운에 크롬 전사를 넣고, 전사 옵션의 빠른 자막 버튼을 옮긴다</li>
           <li>v1.01(261114) : 전사로 들어가는 소리를 키우고 선명하게 처리</li>
           <li>v1.02(261114) : 쉬거나 8–15초가 차면 그 구간만 한 번 전송</li>
           <li>v1.03(261114) : 분절 초마다 0.2초를 겹쳐 보내고 말과 번역을 이어 붙임</li>
@@ -480,6 +485,8 @@
     glossary: "",
     playbackRate: "1", mdFormat: "table", appMode: "test"
   };
+  var persistMigrated = false;
+  var chromeFallback = "";
   var WHISPER_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2";
   var WHISPER_MODEL = "onnx-community/whisper-tiny";
   var WHISPER_NAME = {
@@ -638,7 +645,7 @@
       else if (s.asrEngine === "none") s.asrRoute = "none";
       else s.asrRoute = "local";
     }
-    if (s.asrRoute !== "local" && s.asrRoute !== "gemini" && s.asrRoute !== "none" && s.asrRoute !== "pc") s.asrRoute = "local";
+    if (s.asrRoute !== "local" && s.asrRoute !== "gemini" && s.asrRoute !== "none" && s.asrRoute !== "pc" && s.asrRoute !== "chrome") s.asrRoute = "local";
     if (s.localAsr !== "whisper") s.localAsr = "sensevoice";
     if (s.trRoute !== "gemini" && s.trRoute !== "gemma" && s.trRoute !== "pc") s.trRoute = "gemini";
     s.pcBase = cleanBase(s.pcBase);
@@ -668,7 +675,14 @@
     rememberModelId(s.asrModelIds, s.geminiModel);
     if (s.trModel === "__new__") s.trModel = "";
     if (s.asrModel === "__new__") s.asrModel = "";
-    if (s.cutMode !== "overlap" && s.cutMode !== "cut" && s.cutMode !== "pause" && s.cutMode !== "fast") s.cutMode = "overlap";
+    // 예전 빠른 자막은 전사 제공자의 크롬 전사로 옮긴다.
+    if (s.cutMode === "fast") {
+      if (s.asrRoute !== "chrome") chromeFallback = s.asrRoute;
+      s.asrRoute = "chrome";
+      s.cutMode = "overlap";
+      persistMigrated = true;
+    }
+    if (s.cutMode !== "overlap" && s.cutMode !== "cut" && s.cutMode !== "pause") s.cutMode = "overlap";
     return s;
   }
 
@@ -740,6 +754,7 @@
   }
 
   function bindSettings() {
+    var chromeBlocked = rejectUnsupportedChrome();
     fillLangSelect(document.getElementById("lang1"), settings.lang1);
     fillLangSelect(document.getElementById("lang2"), settings.lang2);
     var ids = ["displayMode", "asrRoute", "localAsr", "trRoute", "playbackRate", "mdFormat", "pcEngine", "pcSize", "pcTrSize", "micLevel"];
@@ -754,8 +769,6 @@
     document.getElementById("tgtColor").value = settings.tgtColor;
     document.getElementById("maxItems").value = settings.maxItems;
     document.getElementById("segment").value = settings.segment;
-    var fastBlocked = settings.cutMode === "fast" && !speechCtor();
-    if (fastBlocked) settings.cutMode = "overlap";
     paintCutMode();
     document.getElementById("trKey").value = settings.trKey || "";
     document.getElementById("asrKey").value = settings.asrKey || "";
@@ -772,8 +785,8 @@
     document.getElementById("srcSizeVal").textContent = settings.srcSize + "px";
     document.getElementById("tgtSizeVal").textContent = settings.tgtSize + "px";
     paintSegmentLabel();
-    if (fastBlocked) showFastUnsupported();
     syncEnginePanels();
+    if (chromeBlocked) showChromeUnsupported();
   }
 
   function applyTheme() {
@@ -978,6 +991,12 @@
       return;
     }
     if (!id || !(id in defaults)) return;
+    if (id === "asrRoute" && document.getElementById("asrRoute").value === "chrome" && !speechCtor()) {
+      document.getElementById("asrRoute").value = settings.asrRoute || "gemini";
+      showChromeUnsupported();
+      return;
+    }
+    var prevAsrRoute = settings.asrRoute;
     if (id === "trModel" || id === "asrModel") {
       if (event.target.value !== "__new__") {
         readForm(id);
@@ -1012,8 +1031,18 @@
     if (id === "pcKey" && event.type !== "input" && settings.asrRoute === "pc") refreshPcStatus();
     if (id === "pcTrKey" && event.type !== "input" && settings.trRoute === "pc") refreshPcStatus();
     if (id === "asrRoute" || id === "localAsr") {
+      if (id === "asrRoute" && prevAsrRoute !== settings.asrRoute) {
+        if (prevAsrRoute === "chrome") stopFastCaption();
+        if (settings.asrRoute === "chrome" && (micStream || micStarting)) {
+          disconnectMic();
+          startFastCaption();
+        }
+        var supportHint = document.getElementById("chromeSupportHint");
+        if (supportHint) supportHint.hidden = true;
+      }
       resetAsrAudio();
       syncEnginePanels();
+      if (id === "asrRoute") paintCutMode();
     }
     if (id === "trRoute") syncEnginePanels();
     if ((id === "asrRoute" || id === "trRoute") && (settings.asrRoute === "pc" || settings.trRoute === "pc")) {
@@ -1021,8 +1050,9 @@
     }
     applyTheme();
     updateSaveState();
-    if (id === "lang1" && cutMode() === "fast") {
+    if (id === "lang1" && chromeAsr()) {
       paintCutMode();
+      updateAsrHint();
       if (fastOn) openFastRec();
     }
     if (id === "displayMode" || id === "lang1" || id === "lang2" || id === "maxItems") render();
@@ -1053,9 +1083,9 @@
 
   function refreshStatus() {
     paintFastBanner();
-    if (cutMode() === "fast") {
+    if (chromeAsr()) {
       el.dot.classList.toggle("on", !!fastOn);
-      el.status.textContent = fastStatus || (fastOn ? "빠른 자막 듣는 중" : "빠른 자막 대기");
+      el.status.textContent = fastStatus || (fastOn ? "크롬 전사 듣는 중" : "크롬 전사 대기");
       return;
     }
     var fileOn = !!(el.player && !el.player.paused);
@@ -1490,12 +1520,12 @@
     if (name === "whisper") return "Whisper";
     if (name === "gemini") return "Gemini 음성";
     if (name === "pc-whisper") return "PC Whisper";
-    if (name === "webspeech") return "빠른 자막";
+    if (name === "webspeech") return "크롬 전사";
     return "";
   }
 
   function asrStatusLabel() {
-    if (cutMode() === "fast") return "빠른 자막";
+    if (chromeAsr()) return "크롬 전사";
     if (settings.asrRoute === "none") return "연결 안 함";
     if (settings.asrRoute === "gemini") return "Gemini 음성";
     if (settings.asrRoute === "pc") return "PC API";
@@ -2337,7 +2367,7 @@
   }
 
   function segmentKind() {
-    if (cutMode() === "fast") return "off";
+    if (chromeAsr()) return "off";
     if (settings.asrRoute === "gemini" || settings.asrRoute === "pc") return "energy";
     if (settings.asrRoute === "local" && settings.localAsr === "whisper") return "energy";
     if (settings.asrRoute === "local" && settings.localAsr === "sensevoice") return "sense";
@@ -2449,12 +2479,14 @@
     var gemma = settings.trRoute === "gemma";
     document.getElementById("gemmaRow").hidden = !gemma;
     document.getElementById("trApiRow").hidden = settings.trRoute !== "gemini";
+    var googleHint = document.getElementById("fastGoogleHint");
+    if (googleHint) googleHint.hidden = settings.asrRoute !== "chrome";
     var trHint = document.getElementById("trRouteHint");
     if (trHint) {
       trHint.textContent = gemma
         ? "기기 내 Gemma는 고른 .litertlm만 읽습니다. 확정된 글만 넣고, 음성은 나가지 않습니다. 번역 제공자를 바꾼 뒤에는 저장하세요."
         : settings.trRoute === "pc"
-          ? "PC API 번역은 아래 주소의 Ollama로 확정된 글만 보냅니다. 빠른 자막으로 받아써도 번역은 이 주소로 갑니다. 음성은 이 칸으로 나가지 않습니다."
+          ? "PC API 번역은 아래 주소의 Ollama로 확정된 글만 보냅니다. 크롬 전사로 받아써도 번역은 이 주소로 갑니다. 음성은 이 칸으로 나가지 않습니다."
           : "번역 칸은 전사 칸과 따로입니다. 확정된 글만 보내고, 음성은 이 칸으로 나가지 않습니다.";
     }
     if (gemma) refreshGemmaNote().catch(function () {});
@@ -2470,6 +2502,9 @@
     } else if (route === "none") {
       node.textContent = "전사를 하지 않습니다. 메인 화면에 새 글이 생기지 않습니다.";
       asrNote = "전사 안 함";
+    } else if (route === "chrome") {
+      node.textContent = "크롬 전사로 적습니다. 말한 소리는 구글 서버로 갑니다. 인식 언어는 언어1(" + langName(settings.lang1) + ")입니다. 단어가 나오는 대로 원문을 고치고, 네 단어가 모이거나 0.45초 쉬면 그 문장을 번역합니다. 같은 문장은 번역을 고쳐 씁니다. 분절 길이와 마이크 입력 크기는 적용되지 않습니다.";
+      if (!fastOn) asrNote = "크롬 전사";
     } else if (route === "pc") {
       node.textContent = "이 PC의 받아쓰기로 적습니다. 말 조각은 아래 PC API 주소의 /inference 로 가고, 비밀 키를 같이 보냅니다. 이 브라우저는 모델 파일을 받지 않습니다.";
       if (!segBusy) asrNote = "PC API Whisper";
@@ -2795,8 +2830,22 @@
   }
 
   function cutMode() {
-    if (settings.cutMode === "cut" || settings.cutMode === "pause" || settings.cutMode === "fast") return settings.cutMode;
+    if (settings.cutMode === "cut" || settings.cutMode === "pause") return settings.cutMode;
     return "overlap";
+  }
+
+  function chromeAsr() {
+    return settings.asrRoute === "chrome";
+  }
+
+  function rejectUnsupportedChrome() {
+    if (settings.asrRoute !== "chrome" || speechCtor()) return false;
+    var back = chromeFallback && chromeFallback !== "chrome" ? chromeFallback : "gemini";
+    if (back !== "local" && back !== "gemini" && back !== "none" && back !== "pc") back = "gemini";
+    settings.asrRoute = back;
+    if (settings.cutMode !== "overlap" && settings.cutMode !== "cut" && settings.cutMode !== "pause") settings.cutMode = "overlap";
+    persistMigrated = true;
+    return true;
   }
 
   function pausePlan() {
@@ -2811,7 +2860,7 @@
   function paintSegmentLabel() {
     var node = document.getElementById("segmentVal");
     if (!node) return;
-    if (cutMode() === "fast") {
+    if (chromeAsr()) {
       node.textContent = "사용 안 함";
       return;
     }
@@ -2825,26 +2874,34 @@
 
   function paintCutMode() {
     var mode = cutMode();
-    var modes = [["cutOverlap", "overlap"], ["cutCut", "cut"], ["cutPause", "pause"], ["cutFast", "fast"]];
+    var chrome = chromeAsr();
+    var modes = [["cutOverlap", "overlap"], ["cutCut", "cut"], ["cutPause", "pause"]];
     modes.forEach(function (pair) {
       var btn = document.getElementById(pair[0]);
       if (!btn) return;
       var on = mode === pair[1];
       btn.classList.toggle("active", on);
+      btn.disabled = chrome;
       btn.setAttribute("aria-pressed", on ? "true" : "false");
     });
+    var block = document.getElementById("cutOptionBlock");
+    if (block) block.hidden = chrome;
+    var cutNote = document.getElementById("chromeCutNote");
+    if (cutNote) cutNote.hidden = !chrome;
     var segment = document.getElementById("segment");
-    if (segment) segment.disabled = mode === "fast";
+    if (segment) segment.disabled = chrome;
+    var mic = document.getElementById("micLevel");
+    if (mic) mic.disabled = chrome;
     var micHint = document.getElementById("micLevelHint");
     if (micHint) {
-      micHint.textContent = mode === "fast"
-        ? "빠른 자막에서는 마이크 입력 크기가 적용되지 않습니다. 브라우저가 마이크를 직접 엽니다."
+      micHint.textContent = chrome
+        ? "크롬 전사에서는 마이크 입력 크기가 적용되지 않습니다. 브라우저가 마이크를 직접 엽니다."
         : "기본은 지금과 같습니다. 작게는 큰 소리를 낮추고, 크게는 작은 소리를 키웁니다. 소리는 잘라서 깨지지 않게 합니다. Gemini와 PC API로 보내기 전에 적용됩니다. 저장을 누르면 이 브라우저에 남습니다.";
     }
     var hint = document.getElementById("segmentHint");
     if (hint) {
-      hint.textContent = mode === "fast"
-        ? "인식 언어는 언어1(" + langName(settings.lang1) + ")입니다. 단어가 나오는 대로 원문을 고치고, 네 단어가 모이거나 0.45초 쉬면 그 문장을 번역합니다. 같은 문장은 번역을 고쳐 씁니다. 분절 길이는 적용되지 않습니다."
+      hint.textContent = chrome
+        ? "크롬 전사에서는 적용되지 않음"
         : mode === "pause"
           ? "말이 쉬거나 최대 길이가 차면 그 구간을 한 번만 보냅니다. 1은 쉼 0.5초·최대 5초, 5는 쉼 1.3초·최대 13초입니다."
           : mode === "cut"
@@ -2856,25 +2913,13 @@
   }
 
   function setCutMode(mode) {
-    if (mode !== "overlap" && mode !== "cut" && mode !== "pause" && mode !== "fast") return;
-    if (mode === "fast" && !speechCtor()) {
-      paintCutMode();
-      showFastUnsupported();
-      return;
-    }
-    var was = cutMode();
+    if (chromeAsr()) return;
+    if (mode !== "overlap" && mode !== "cut" && mode !== "pause") return;
     settings.cutMode = mode;
-    if (was === "fast" && mode !== "fast") stopFastCaption();
-    if (mode !== "fast") {
-      beginWindowSession();
-      extSilence = 0;
-      extVoiced = false;
-      resetUttBuffers();
-    }
-    if (mode === "fast" && (micStream || micStarting)) {
-      disconnectMic();
-      startFastCaption();
-    }
+    beginWindowSession();
+    extSilence = 0;
+    extVoiced = false;
+    resetUttBuffers();
     paintCutMode();
     updateAsrHint();
     updateSaveState();
@@ -2894,18 +2939,22 @@
     return map[code] || "ko-KR";
   }
 
-  function showFastUnsupported() {
-    var hint = document.getElementById("segmentHint");
-    if (hint) hint.textContent = "이 브라우저는 빠른 자막을 지원하지 않음";
-    toast("이 브라우저는 빠른 자막을 지원하지 않음");
+  function showChromeUnsupported() {
+    var text = "이 브라우저는 크롬 전사를 지원하지 않음(크롬 앱에서 여세요)";
+    var hint = document.getElementById("chromeSupportHint");
+    if (hint) {
+      hint.hidden = false;
+      hint.textContent = text;
+    }
+    toast(text);
   }
 
   function paintFastBanner() {
     var banner = document.getElementById("fastBanner");
     if (!banner) return;
-    var on = cutMode() === "fast";
+    var on = chromeAsr();
     banner.hidden = !on;
-    banner.textContent = on ? "빠른 자막 · 마이크 입력 크기는 적용되지 않습니다. 말한 소리는 구글 서버로 갑니다." : "";
+    banner.textContent = on ? "크롬 전사 · 마이크 입력 크기는 적용되지 않습니다. 말한 소리는 구글 서버로 갑니다." : "";
   }
 
   function fillPcPreset(select) {
@@ -3192,7 +3241,7 @@
       fastStatus = message;
       refreshStatus();
       if (fastFailStreak === 1) toast(message);
-      if (fastFailStreak >= 5) haltFast("여러 번 연결하지 못해 빠른 자막을 멈췄습니다");
+      if (fastFailStreak >= 5) haltFast("여러 번 연결하지 못해 크롬 전사를 멈췄습니다");
       return;
     }
     fastRetryMs = 250;
@@ -3242,7 +3291,7 @@
     rec.onend = function () { onFastEnd(rec); };
     rec.onstart = function () {
       fastFailStreak = 0;
-      fastStatus = "빠른 자막 듣는 중 · " + langName(settings.lang1);
+      fastStatus = "크롬 전사 듣는 중 · " + langName(settings.lang1);
       refreshStatus();
     };
     fastRec = rec;
@@ -3257,7 +3306,7 @@
 
   function startFastCaption() {
     if (!speechCtor()) {
-      showFastUnsupported();
+      showChromeUnsupported();
       return;
     }
     if (micStream || micStarting) disconnectMic();
@@ -3265,7 +3314,7 @@
     fastOn = true;
     fastFailStreak = 0;
     fastRetryMs = 250;
-    fastStatus = "빠른 자막 연결 중";
+    fastStatus = "크롬 전사 연결 중";
     setMicUi(true);
     setRunning(true);
     acquireWake();
@@ -4228,7 +4277,7 @@
   }
 
   async function toggleMic() {
-    if (cutMode() === "fast") {
+    if (chromeAsr()) {
       if (fastOn) stopFastCaption();
       else startFastCaption();
       return;
@@ -4423,7 +4472,6 @@
   document.getElementById("cutOverlap").addEventListener("click", function () { setCutMode("overlap"); });
   document.getElementById("cutCut").addEventListener("click", function () { setCutMode("cut"); });
   document.getElementById("cutPause").addEventListener("click", function () { setCutMode("pause"); });
-  document.getElementById("cutFast").addEventListener("click", function () { setCutMode("fast"); });
   document.getElementById("defaultBtn").addEventListener("click", function () {
     if (fastOn) stopFastCaption();
     settings = Object.assign({}, defaults);
@@ -4593,6 +4641,7 @@
   render();
   showApiCheck(defaultApiHint(), "");
   updateAsrHint();
+  if (persistMigrated) saveSettings();
   markSaved();
   timerId = setInterval(tick, 200);
   window.addEventListener("beforeunload", function () {

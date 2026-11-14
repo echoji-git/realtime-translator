@@ -182,9 +182,12 @@ await page.evaluate(() => {
 await page.reload({ waitUntil: "load" });
 
 const version = await page.$eval("#devVersion", (node) => node.textContent);
-if (version.indexOf("v1.04 (261115)") === -1) throw new Error(version);
+if (version.indexOf("v1.041 (261115)") === -1) throw new Error(version);
 const history = await page.$eval("#devHistory", (node) => node.textContent);
 if (history.indexOf("v1.04(261115)") === -1) throw new Error(history);
+if (history.indexOf("v1.041(261115)") === -1) throw new Error(history);
+const noFastButton = await page.$("#cutFast");
+if (noFastButton) throw new Error("cutFast still present");
 const googleHint = await page.$eval("#fastGoogleHint", (node) => node.textContent);
 if (googleHint.indexOf("구글 서버") === -1) throw new Error(googleHint);
 
@@ -198,23 +201,35 @@ await clickId(page, "cutOverlap");
 const overlapOn = await page.$eval("#cutOverlap", (node) => node.classList.contains("active"));
 if (!overlapOn) throw new Error("overlap mode broken");
 
-await clickId(page, "cutFast");
+await page.evaluate(() => document.querySelector('#sidebar .fold[data-fold="models"] .fold-btn').click());
+await page.waitForFunction(() => !document.getElementById("fold-models").hidden);
+await page.select("#asrRoute", "chrome");
 const fastUi = await page.evaluate(() => ({
-  fast: document.getElementById("cutFast").classList.contains("active"),
-  hint: document.getElementById("segmentHint").textContent,
+  route: document.getElementById("asrRoute").value,
+  asrApi: document.getElementById("asrApiRow").hidden,
+  pc: document.getElementById("pcPanel").hidden,
+  local: document.getElementById("localAsrRow").hidden,
+  trApi: document.getElementById("trApiRow").hidden,
+  hint: document.getElementById("asrHint").textContent,
   mic: document.getElementById("micLevelHint").textContent,
   google: document.getElementById("fastGoogleHint").textContent,
+  googleHidden: document.getElementById("fastGoogleHint").hidden,
   banner: document.getElementById("fastBanner").textContent,
   bannerHidden: document.getElementById("fastBanner").hidden,
+  cutHidden: document.getElementById("cutOptionBlock").hidden,
+  cutNote: document.getElementById("chromeCutNote").textContent,
+  cutNoteHidden: document.getElementById("chromeCutNote").hidden,
   segmentDisabled: document.getElementById("segment").disabled
 }));
-if (!fastUi.fast) throw new Error("fast not selected");
+if (fastUi.route !== "chrome") throw new Error("chrome not selected " + fastUi.route);
 if (fastUi.hint.indexOf("언어1") === -1 || fastUi.hint.indexOf("네 단어") === -1) throw new Error(fastUi.hint);
 if (fastUi.mic.indexOf("적용되지 않습니다") === -1) throw new Error(fastUi.mic);
-if (fastUi.google.indexOf("구글") === -1) throw new Error(fastUi.google);
-if (fastUi.bannerHidden || fastUi.banner.indexOf("마이크 입력 크기") === -1) throw new Error(fastUi.banner);
+if (fastUi.google.indexOf("구글") === -1 || fastUi.googleHidden) throw new Error(fastUi.google);
+if (fastUi.bannerHidden || fastUi.banner.indexOf("마이크 입력 크기") === -1 || fastUi.banner.indexOf("크롬 전사") === -1) throw new Error(fastUi.banner);
+if (!fastUi.asrApi || !fastUi.pc || !fastUi.local || fastUi.trApi) throw new Error("panels " + JSON.stringify(fastUi));
+if (!fastUi.cutHidden || fastUi.cutNoteHidden || fastUi.cutNote.indexOf("크롬 전사에서는 적용되지 않음") === -1) throw new Error(fastUi.cutNote);
 if (!fastUi.segmentDisabled) throw new Error("segment still enabled");
-await page.$eval("#cutFast", (node) => node.scrollIntoView({ block: "center" }));
+await page.$eval("#asrRoute", (node) => node.scrollIntoView({ block: "center" }));
 await new Promise((r) => setTimeout(r, 250));
 await page.screenshot({ path: outDir + "/v104-settings-caption-390.png" });
 
@@ -378,6 +393,7 @@ await page.$eval("#pcTrKey", (node) => {
   node.value = "tr-secret";
   node.dispatchEvent(new Event("change", { bubbles: true }));
 });
+await page.select("#asrRoute", "chrome");
 await page.$eval("#pcTrBase", (node) => node.scrollIntoView({ block: "center" }));
 await page.screenshot({ path: outDir + "/v104-settings-pc-tr-390.png" });
 await clickId(page, "saveSettingsBtn");
@@ -450,18 +466,22 @@ await bare.reload({ waitUntil: "load" });
 const hasSpeech = await bare.evaluate(() => typeof window.SpeechRecognition === "function" || typeof window.webkitSpeechRecognition === "function");
 if (hasSpeech) throw new Error("speech api still present");
 await clickId(bare, "menuBtn");
-await bare.evaluate(() => document.querySelector('#sidebar .fold[data-fold="segment"] .fold-btn').click());
-await bare.waitForFunction(() => !document.getElementById("fold-segment").hidden);
-await clickId(bare, "cutFast");
+await bare.evaluate(() => document.querySelector('#sidebar .fold[data-fold="models"] .fold-btn').click());
+await bare.waitForFunction(() => !document.getElementById("fold-models").hidden);
+const chromeOption = await bare.$("#asrRoute option[value='chrome']");
+if (!chromeOption) throw new Error("chrome option missing");
+const beforeRoute = await bare.$eval("#asrRoute", (node) => node.value);
+await bare.select("#asrRoute", "chrome");
 const unsupported = await bare.evaluate(() => ({
-  hint: document.getElementById("segmentHint").textContent,
+  hint: document.getElementById("chromeSupportHint").textContent,
   toast: document.getElementById("toast").textContent,
-  fast: document.getElementById("cutFast").classList.contains("active"),
-  overlap: document.getElementById("cutOverlap").classList.contains("active")
+  route: document.getElementById("asrRoute").value,
+  hintHidden: document.getElementById("chromeSupportHint").hidden
 }));
-if (unsupported.hint !== "이 브라우저는 빠른 자막을 지원하지 않음") throw new Error(unsupported.hint);
-if (unsupported.toast !== "이 브라우저는 빠른 자막을 지원하지 않음") throw new Error(unsupported.toast);
-if (unsupported.fast || !unsupported.overlap) throw new Error(JSON.stringify(unsupported));
+const unsupportedText = "이 브라우저는 크롬 전사를 지원하지 않음(크롬 앱에서 여세요)";
+if (unsupported.hint !== unsupportedText) throw new Error(unsupported.hint);
+if (unsupported.toast !== unsupportedText) throw new Error(unsupported.toast);
+if (unsupported.route !== beforeRoute || unsupported.hintHidden) throw new Error(JSON.stringify(unsupported));
 
 const realErrors = errors.filter((line) => line.indexOf("favicon") === -1 && line.indexOf("404") === -1);
 if (realErrors.length) throw new Error(realErrors.join("\n"));
