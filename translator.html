@@ -96,7 +96,7 @@
   body[data-mode="talk"] .file-tools { display: none; }
   #saveState.dirty { color: #f0c674; }
   #apiCheck.ok { color: #8ee0b0; }
-  #apiCheck.bad { color: #ffb4b4; }
+  #apiCheck.bad, .hint.bad { color: #ffb4b4; }
   .side-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .side-head h2 { margin: 0; }
   input[type="color"] { height: 40px; padding: 4px; }
@@ -178,10 +178,34 @@
           <button id="asrModelsBtn" class="bar-btn" type="button">전사 모델 목록</button>
           <p id="asrApiCheck" class="hint"></p>
         </div>
-        <div id="pcBaseRow" hidden>
+        <div id="pcPanel" hidden>
           <label for="pcBase">PC API 주소</label>
-          <input id="pcBase" type="text" autocomplete="off" spellcheck="false" placeholder="https://….trycloudflare.com">
-          <p class="hint">A PC가 알려 준 HTTPS 주소만 넣습니다. 받아쓰기는 /inference 로 가고, 번역은 /api/chat 으로 갑니다. 키는 없습니다. 이 브라우저는 모델 파일을 받지 않습니다.</p>
+          <input id="pcBase" type="text" autocomplete="off" spellcheck="false" placeholder="https://….ts.net">
+          <label for="pcKey">비밀 키</label>
+          <input id="pcKey" type="password" autocomplete="off" spellcheck="false" placeholder="이 브라우저에만 저장">
+          <p class="hint">비밀 키는 이 브라우저에만 저장됩니다. 설치할 때 바탕화면에 한 번 적힌 키를 넣습니다. 받아쓰기는 /inference, 번역은 /api/chat 으로 가며 둘 다 이 키를 붙입니다.</p>
+          <label for="pcEngine">전사 엔진</label>
+          <select id="pcEngine">
+            <option value="whisper">Whisper</option>
+            <option value="sensevoice">SenseVoice</option>
+          </select>
+          <p id="pcSenseNote" class="hint bad" hidden>설치 필요</p>
+          <label for="pcSize">전사 크기</label>
+          <select id="pcSize">
+            <option value="base">base</option>
+            <option value="small">small</option>
+            <option value="turbo">turbo</option>
+          </select>
+          <label for="pcTrSize">번역 모델</label>
+          <select id="pcTrSize">
+            <option value="1b">Ollama 1B</option>
+            <option value="2b">Ollama 2B</option>
+            <option value="4b">Ollama 4B</option>
+          </select>
+          <p id="pcModelHint" class="hint">번역에 보내는 모델: gemma3:1b</p>
+          <button id="pcApplyBtn" class="bar-btn" type="button">적용</button>
+          <p id="pcApplyNote" class="hint"></p>
+          <p class="hint">적용은 고른 조합을 데스크톱에 보내고, 모델 파일과 그래픽 메모리, 조각당 시간을 받아 옵니다. 데스크톱이 응답하지 않으면 주소와 키만 저장됩니다.</p>
         </div>
         <p id="asrHint" class="hint"></p>
         <h3>번역</h3>
@@ -192,11 +216,6 @@
           <option value="gemma">기기 내 Gemma</option>
         </select>
         <p id="trRouteHint" class="hint">번역 칸은 전사 칸과 따로입니다. 확정된 글만 보내고, 음성은 이 칸으로 나가지 않습니다.</p>
-        <div id="pcModelRow" hidden>
-          <label for="pcModel">Ollama 모델</label>
-          <input id="pcModel" type="text" autocomplete="off" spellcheck="false" placeholder="qwen2.5:1.5b">
-          <p class="hint">확정된 글만 보냅니다. 음성은 이 칸으로 나가지 않습니다. 주소는 위의 PC API 주소와 같습니다.</p>
-        </div>
         <div id="gemmaRow" hidden>
           <p class="hint">회의 번역은 이미 받아 둔 Gemma 4 E2B 가중치를 고릅니다. Google AI Edge Gallery가 받는 파일 이름은 gemma-4-E2B-it.litertlm입니다. 그 파일은 앱 전용 폴더에 있어 이 페이지가 그 폴더를 바로 열지는 못합니다. 파일 고르기에서 그 파일이 보이면 한 번 고릅니다. 이 브라우저가 그 선택을 기억하면 다음에도 같은 파일을 씁니다. 음성은 나가지 않습니다. 문서에 적힌 브라우저용 파일은 이름이 다른 더 작은 파일이라, 앱이 받은 파일이 여기서 열리지 않을 수 있습니다.</p>
           <button id="gemmaPickBtn" class="bar-btn" type="button">Gemma 가중치 고르기</button>
@@ -220,7 +239,7 @@
         </div>
         <label for="glossary">용어집</label>
         <textarea id="glossary" placeholder="웨이퍼=wafer | 웨이파, 웨퍼"></textarea>
-        <p class="hint">한 줄에 원어=선호 번역입니다. 별칭은 막대 뒤에 쉼표로 적습니다. 지난 회의 전사문이 없으면 비워 둡니다. 번역 요청과 외부 전사에는 이 표와, 이번 회의에서 방금 확정된 원문 최대 3개를 붙입니다. 기기 내 모델은 별칭을 원어 표기로만 고칩니다.</p>
+        <p class="hint">한 줄에 원어=선호 번역입니다. 별칭은 막대 뒤에 쉼표로 적습니다. 표가 비어 있으면 용어집 줄을 요청에 넣지 않습니다. 이번 회의에서 확정된 원문이 없으면 그 줄도 넣지 않습니다. 모델이 그 줄을 따라 적어도 화면에서는 지웁니다.</p>
       </div>
     </section>
     <section class="fold" data-fold="lang">
@@ -252,6 +271,13 @@
         <span>3. 전사 옵션</span><span class="fold-mark" aria-hidden="true">▸</span>
       </button>
       <div id="fold-segment" class="fold-body" hidden>
+        <label for="micLevel">마이크 입력 크기</label>
+        <select id="micLevel">
+          <option value="low">작게</option>
+          <option value="mid" selected>기본</option>
+          <option value="high">크게</option>
+        </select>
+        <p class="hint">기본은 지금과 같습니다. 작게는 큰 소리를 낮추고, 크게는 작은 소리를 키웁니다. 소리는 잘라서 깨지지 않게 합니다. Gemini와 PC API로 보내기 전에 적용됩니다. 저장을 누르면 이 브라우저에 남습니다.</p>
         <label>전사 옵션</label>
         <div class="mode-switch" role="group" aria-label="전사 옵션">
           <button id="cutOverlap" class="bar-btn" type="button">겹침</button>
@@ -338,13 +364,14 @@
           <button id="modeTalk" class="bar-btn" type="button">대화모드</button>
         </div>
         <p id="modeHint" class="hint">Test모드는 음성 파일로 확인합니다.</p>
-        <p id="devVersion" class="hint">개발Version 정보 : v1.032 (261114)</p>
+        <p id="devVersion" class="hint">개발Version 정보 : v1.033 (261114)</p>
         <ul id="devHistory" class="hint dev-history">
           <li>v1.01(261114) : 전사로 들어가는 소리를 키우고 선명하게 처리</li>
           <li>v1.02(261114) : 쉬거나 8–15초가 차면 그 구간만 한 번 전송</li>
           <li>v1.03(261114) : 분절 초마다 0.2초를 겹쳐 보내고 말과 번역을 이어 붙임</li>
           <li>v1.031(261114) : 겹친 구간의 잘린 단어를 다음 인식으로 고쳐 잇는다</li>
           <li>v1.032(261114) : 전사 옵션에서 겹침, 분절, 기존 중 하나를 고른다</li>
+          <li>v1.033(261114) : 빈 용어집과 빈 직전 원문을 지우고, PC 비밀 키와 적용, 마이크 입력 크기를 넣는다</li>
         </ul>
       </div>
     </section>
@@ -389,6 +416,7 @@
 <div id="toast" role="status"></div>
 <audio id="player" preload="auto"></audio>
 
+<script src="rtb-core.js"></script>
 <script>
 (function () {
   "use strict";
@@ -408,7 +436,9 @@
     asrRoute: "gemini", localAsr: "sensevoice",
     asrKey: "", asrModel: "", asrModelIds: [],
     trRoute: "gemini", trKey: "", trModel: "", trModelIds: [],
-    pcBase: "", pcModel: "",
+    pcBase: "", pcKey: "", pcModel: "gemma3:1b",
+    pcEngine: "whisper", pcSize: "base", pcTrSize: "1b",
+    micLevel: "mid",
     glossary: "",
     playbackRate: "1", mdFormat: "table", appMode: "test"
   };
@@ -550,7 +580,16 @@
     if (s.localAsr !== "whisper") s.localAsr = "sensevoice";
     if (s.trRoute !== "gemini" && s.trRoute !== "gemma" && s.trRoute !== "pc") s.trRoute = "gemini";
     s.pcBase = String(s.pcBase || "").trim();
-    s.pcModel = String(s.pcModel || "").trim();
+    s.pcKey = String(s.pcKey || "").trim();
+    if (s.pcEngine !== "whisper" && s.pcEngine !== "sensevoice") s.pcEngine = "whisper";
+    if (s.pcSize !== "base" && s.pcSize !== "small" && s.pcSize !== "turbo") s.pcSize = "base";
+    if (s.pcTrSize !== "1b" && s.pcTrSize !== "2b" && s.pcTrSize !== "4b") {
+      if (s.pcModel === "gemma3:4b") s.pcTrSize = "4b";
+      else if (s.pcModel === "gemma2:2b") s.pcTrSize = "2b";
+      else s.pcTrSize = "1b";
+    }
+    s.pcModel = window.RtbClean.pcModelTag(s.pcTrSize);
+    if (s.micLevel !== "low" && s.micLevel !== "mid" && s.micLevel !== "high") s.micLevel = "mid";
     if (!s.trKey && s.geminiKey) s.trKey = s.geminiKey;
     if (!s.trModel && s.geminiModel) s.trModel = s.geminiModel;
     if (s.asrRoute === "gemini") {
@@ -639,7 +678,7 @@
   function bindSettings() {
     fillLangSelect(document.getElementById("lang1"), settings.lang1);
     fillLangSelect(document.getElementById("lang2"), settings.lang2);
-    var ids = ["displayMode", "asrRoute", "localAsr", "trRoute", "playbackRate", "mdFormat"];
+    var ids = ["displayMode", "asrRoute", "localAsr", "trRoute", "playbackRate", "mdFormat", "pcEngine", "pcSize", "pcTrSize", "micLevel"];
     ids.forEach(function (id) {
       var node = document.getElementById(id);
       if (node && settings[id]) node.value = settings[id];
@@ -655,7 +694,8 @@
     document.getElementById("trKey").value = settings.trKey || "";
     document.getElementById("asrKey").value = settings.asrKey || "";
     document.getElementById("pcBase").value = settings.pcBase || "";
-    document.getElementById("pcModel").value = settings.pcModel || "";
+    document.getElementById("pcKey").value = settings.pcKey || "";
+    paintPcModelHint();
     document.getElementById("glossary").value = settings.glossary || "";
     paintModelSelect("tr");
     paintModelSelect("asr");
@@ -726,11 +766,11 @@
   function readAllSettings() {
     ["lang1", "lang2", "displayMode", "asrRoute", "localAsr", "trRoute", "playbackRate", "mdFormat",
       "bgColor", "srcSize", "tgtSize", "srcColor", "tgtColor", "maxItems", "segment",
-      "trKey", "asrKey", "glossary", "pcBase", "pcModel"].forEach(readForm);
+      "trKey", "asrKey", "glossary", "pcBase", "pcKey", "pcEngine", "pcSize", "pcTrSize", "micLevel"].forEach(readForm);
     settings.trKey = String(settings.trKey || "").trim();
     settings.asrKey = String(settings.asrKey || "").trim();
     settings.pcBase = String(settings.pcBase || "").trim();
-    settings.pcModel = String(settings.pcModel || "").trim();
+    settings.pcKey = String(settings.pcKey || "").trim();
     applyChosenModel("tr");
     applyChosenModel("asr");
     settings = migrateSettings(settings);
@@ -886,11 +926,17 @@
       asrNoteEl.textContent = "전사 키를 넣으면 모델 목록을 불러옵니다. 음성은 목록 조회에 넣지 않습니다.";
       asrNoteEl.className = "hint";
     }
+    if (id === "pcTrSize" || id === "pcSize" || id === "pcEngine") paintPcModelHint();
+    if (id === "pcBase" && (settings.asrRoute === "pc" || settings.trRoute === "pc")) refreshPcStatus();
+    if (id === "pcKey" && event.type !== "input" && (settings.asrRoute === "pc" || settings.trRoute === "pc")) refreshPcStatus();
     if (id === "asrRoute" || id === "localAsr") {
       resetAsrAudio();
       syncEnginePanels();
     }
     if (id === "trRoute") syncEnginePanels();
+    if ((id === "asrRoute" || id === "trRoute") && (settings.asrRoute === "pc" || settings.trRoute === "pc")) {
+      refreshPcStatus();
+    }
     applyTheme();
     updateSaveState();
     if (id === "displayMode" || id === "lang1" || id === "lang2" || id === "maxItems") render();
@@ -1539,25 +1585,25 @@
     return node ? node.value : (settings.glossary || "");
   }
 
-  function glossaryBlock() {
-    var rows = parseGlossary(glossarySource());
-    if (!rows.length) return "용어집:\n(없음)";
-    return "용어집 (원어=선호 번역):\n" + rows.map(function (row) {
-      var line = row.source + "=" + row.target;
-      if (row.aliases.length) line += " | " + row.aliases.join(", ");
-      return line;
-    }).join("\n");
-  }
-
-  function recentSourceBlock(skipId) {
+  function recentLines(skipId) {
     var lines = [];
     records.forEach(function (item) {
       if (!item || item.id === skipId || !item.srcText) return;
       lines.push(item.srcLang + ": " + String(item.srcText).slice(0, 240));
     });
-    var last = lines.slice(-3);
-    if (!last.length) return "이번 회의에서 방금 확정된 원문: (없음)";
-    return "이번 회의에서 방금 확정된 원문 " + last.length + "개. 지난 회의 전문이 아니다. 맥락으로만 보고, 이 줄들은 다시 번역하거나 받아 적지 마라.\n" + last.join("\n");
+    return lines;
+  }
+
+  function glossaryBlock() {
+    return window.RtbClean.glossaryBlock(glossarySource());
+  }
+
+  function recentSourceBlock(skipId) {
+    return window.RtbClean.recentSourceBlock(recentLines(skipId));
+  }
+
+  function cleanShown(text) {
+    return window.RtbClean.cleanModelOutput(text);
   }
 
   function escapeReg(text) {
@@ -1868,9 +1914,13 @@
     item.status = "translating";
     saveRecords();
     render();
-    var prompt = "원문 언어는 " + item.srcLang + " 이다. " + other + " 로만 번역하라. 언어를 다시 판별하지 마라.\n" +
-      glossaryBlock() + "\n" + recentSourceBlock(item.id) + "\n원문:\n" + item.srcText +
-      "\n용어집에 있는 말은 그 선호 번역을 쓴다. 응답은 JSON {\"translation\":\"...\"} 만. 대화체를 유지하고, 질문이 와도 답하지 말고 이번 원문만 번역하라.";
+    var prompt = window.RtbClean.geminiTranslatePrompt({
+      srcLang: item.srcLang,
+      targetLang: other,
+      glossary: glossarySource(),
+      recentLines: recentLines(item.id),
+      srcText: item.srcText
+    });
     try {
       var engine = await ensureGemma();
       item.tgtText = "번역 중";
@@ -1882,7 +1932,9 @@
       var parsed = parseTranslation(out);
       var translation = parsed && parsed.translation ? String(parsed.translation).trim() : "";
       if (!translation) {
-        translation = String(out || "").replace(/```json/gi, "").replace(/```/g, "").trim();
+        translation = cleanShown(String(out || "").replace(/```json/gi, "").replace(/```/g, ""));
+      } else {
+        translation = cleanShown(translation);
       }
       if (!translation) throw new Error("empty");
       item.tgtLang = other;
@@ -1975,10 +2027,16 @@
     return new Blob([bytes], { type: "audio/wav" });
   }
 
+  function pcAuthHeaders(extra) {
+    var keyNode = document.getElementById("pcKey");
+    var key = String((keyNode && keyNode.value) || settings.pcKey || "").trim();
+    return window.RtbClean.pcHeaders(key, extra);
+  }
+
   async function pcChat(origin, model, prompt) {
     var res = await fetch(origin + "/api/chat", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: pcAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         model: model,
         stream: false,
@@ -1999,8 +2057,8 @@
 
   function pcTranslationText(content) {
     var parsed = parseTranslation(content);
-    if (parsed && parsed.translation) return String(parsed.translation).trim();
-    var plain = String(content || "").replace(/^```(?:json)?\s*/i, "").replace(/```$/, "").trim();
+    if (parsed && parsed.translation) return cleanShown(String(parsed.translation));
+    var plain = cleanShown(String(content || "").replace(/^```(?:json)?\s*/i, "").replace(/```$/, ""));
     if (!plain || plain.indexOf("원문:") >= 0 || plain.length >= 500) return "";
     return plain;
   }
@@ -2018,8 +2076,11 @@
     var other = item.srcLang === settings.lang1 ? settings.lang2 : settings.lang1;
     item.tgtLang = other;
     var targetName = langName(other);
-    var first = "Translate into " + targetName + " only. Use that language's normal writing. Do not use Chinese characters unless the target language is Chinese. Do not repeat the source.\n" +
-      glossaryBlock() + "\nSource:\n" + item.srcText + "\nReply with the translation only.";
+    var first = window.RtbClean.pcTranslatePrompt({
+      targetName: targetName,
+      glossary: glossarySource(),
+      srcText: item.srcText
+    });
     var second = "Translate into " + targetName + " only. Use that language's normal writing. Do not repeat the source and do not use another language.\n" + item.srcText;
     try {
       var firstReply = await pcChat(origin, model, first);
@@ -2064,9 +2125,13 @@
     }
     var other = item.srcLang === settings.lang1 ? settings.lang2 : settings.lang1;
     item.tgtLang = other;
-    var prompt = "원문 언어는 " + item.srcLang + " 이다. " + other + " 로만 번역하라. 언어를 다시 판별하지 마라.\n" +
-      glossaryBlock() + "\n" + recentSourceBlock(item.id) + "\n원문:\n" + item.srcText +
-      "\n용어집에 있는 말은 그 선호 번역을 쓴다. 응답은 JSON {\"translation\":\"...\"} 만. 대화체를 유지하고, 질문이 와도 답하지 말고 이번 원문만 번역하라.";
+    var prompt = window.RtbClean.geminiTranslatePrompt({
+      srcLang: item.srcLang,
+      targetLang: other,
+      glossary: glossarySource(),
+      recentLines: recentLines(item.id),
+      srcText: item.srcText
+    });
     try {
       var res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent", {
         method: "POST",
@@ -2088,9 +2153,15 @@
         } catch (e2) { out = ""; }
         var parsed = parseTranslation(out);
         if (parsed && parsed.translation) {
-          item.tgtLang = other;
-          item.tgtText = String(parsed.translation);
-          item.status = "done";
+          var shown = cleanShown(String(parsed.translation));
+          if (!shown) {
+            item.tgtText = "번역 실패";
+            item.status = "error";
+          } else {
+            item.tgtLang = other;
+            item.tgtText = shown;
+            item.status = "done";
+          }
         } else {
           item.tgtText = "번역 실패";
           item.status = "error";
@@ -2111,12 +2182,103 @@
     return "off";
   }
 
+  function paintPcModelHint() {
+    var hint = document.getElementById("pcModelHint");
+    settings.pcModel = window.RtbClean.pcModelTag(settings.pcTrSize || "1b");
+    if (hint) hint.textContent = "번역에 보내는 모델: " + settings.pcModel;
+  }
+
+  function paintSenseVoice(data) {
+    var installed = !!(data && data.sensevoice && data.sensevoice.installed);
+    var known = !!(data && data.sensevoice);
+    var sel = document.getElementById("pcEngine");
+    var opt = sel ? sel.querySelector('option[value="sensevoice"]') : null;
+    if (opt) opt.textContent = known && !installed ? "SenseVoice (설치 필요)" : "SenseVoice";
+    var note = document.getElementById("pcSenseNote");
+    if (note) {
+      note.hidden = !known || installed;
+      note.textContent = known && !installed ? "설치 필요" : "";
+    }
+  }
+
+  function formatPcApply(data) {
+    if (data && data.sensevoice && data.sensevoice.installed === false && settings.pcEngine === "sensevoice") {
+      return "설치 필요";
+    }
+    var file = data.files || {};
+    var ol = data.ollama || {};
+    var vram = data.vram || {};
+    var parts = [];
+    parts.push(file.exists ? "모델 파일: 있음" : "모델 파일: 설치 필요");
+    if (file.name) parts[0] += " (" + file.name + ")";
+    parts.push(ol.installed ? "번역 모델: 있음" : "번역 모델: 설치 필요");
+    if (vram.used_mb != null && vram.total_mb != null) {
+      parts.push("그래픽 메모리: " + vram.used_mb + " / " + vram.total_mb + " MB");
+    }
+    if (data.chunk_ms != null) parts.push("조각당 시간: " + data.chunk_ms + " ms");
+    if (data.warning) parts.push(data.warning);
+    if (data.ok === false && data.error && parts.join(" ").indexOf(data.error) === -1) parts.unshift(data.error);
+    return parts.join(" · ");
+  }
+
+  async function refreshPcStatus() {
+    var origin = pcOrigin();
+    if (!origin) return;
+    try {
+      var res = await fetch(origin + "/manager/status", { method: "GET", headers: pcAuthHeaders() });
+      if (!res.ok) return;
+      var data = await res.json();
+      paintSenseVoice(data);
+    } catch (e) {}
+  }
+
+  async function applyPcSettings() {
+    readAllSettings();
+    paintPcModelHint();
+    if (settings.pcTrSize === "4b" && settings.pcSize === "turbo") {
+      var go = window.confirm("4B와 turbo를 같이 쓰면 6GB 그래픽 메모리가 빠듯할 수 있습니다. 적용할까요?");
+      if (!go) return;
+    }
+    if (saveSettings()) markSaved();
+    var note = document.getElementById("pcApplyNote");
+    var origin = pcOrigin();
+    if (!origin) {
+      if (note) note.textContent = "PC API 주소는 https 로 넣으세요. 입력은 이 브라우저에 저장했습니다.";
+      return;
+    }
+    if (note) note.textContent = "데스크톱에 적용하는 중";
+    try {
+      var res = await fetch(origin + "/manager/apply", {
+        method: "POST",
+        headers: pcAuthHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          engine: settings.pcEngine,
+          size: settings.pcSize,
+          model: settings.pcModel
+        })
+      });
+      var data = null;
+      try { data = await res.json(); } catch (e) { data = null; }
+      if (res.status === 401) {
+        if (note) note.textContent = "비밀 키가 맞지 않습니다. 주소와 키는 이 브라우저에 저장했습니다.";
+        return;
+      }
+      if (!res.ok || !data) {
+        if (note) note.textContent = "데스크톱 설정은 직접 바꿔야 함";
+        return;
+      }
+      paintSenseVoice(data);
+      if (note) note.textContent = formatPcApply(data);
+    } catch (e2) {
+      if (note) note.textContent = "데스크톱 설정은 직접 바꿔야 함";
+    }
+  }
+
   function syncEnginePanels() {
     var local = settings.asrRoute === "local";
     document.getElementById("localAsrRow").hidden = !local;
     document.getElementById("asrApiRow").hidden = settings.asrRoute !== "gemini";
-    document.getElementById("pcBaseRow").hidden = settings.asrRoute !== "pc" && settings.trRoute !== "pc";
-    document.getElementById("pcModelRow").hidden = settings.trRoute !== "pc";
+    document.getElementById("pcPanel").hidden = settings.asrRoute !== "pc" && settings.trRoute !== "pc";
     var gemma = settings.trRoute === "gemma";
     document.getElementById("gemmaRow").hidden = !gemma;
     document.getElementById("trApiRow").hidden = settings.trRoute !== "gemini";
@@ -2125,7 +2287,7 @@
       trHint.textContent = gemma
         ? "기기 내 Gemma는 고른 .litertlm만 읽습니다. 확정된 글만 넣고, 음성은 나가지 않습니다. 번역 제공자를 바꾼 뒤에는 저장하세요."
         : settings.trRoute === "pc"
-          ? "PC API 번역은 A PC의 Ollama로 확정된 글만 보냅니다. 음성은 이 칸으로 나가지 않습니다."
+          ? "PC API 번역은 고른 Ollama 모델로 확정된 글만 보냅니다. 음성은 이 칸으로 나가지 않습니다. 비밀 키를 같이 보냅니다."
           : "번역 칸은 전사 칸과 따로입니다. 확정된 글만 보내고, 음성은 이 칸으로 나가지 않습니다.";
     }
     if (gemma) refreshGemmaNote().catch(function () {});
@@ -2136,13 +2298,13 @@
     var node = document.getElementById("asrHint");
     var route = settings.asrRoute;
     if (route === "gemini") {
-      node.textContent = "전사 키와 모델은 번역과 따로입니다. 말 조각은 기기 내 모델을 거치지 않고 Google로 갑니다. 고른 두 언어 중 하나로만 적으라고 합니다. 그 글자가 아니면 화면에 두지 않습니다. 요청에는 용어집과 이번 회의의 직전 원문 최대 3개를 붙입니다.";
+      node.textContent = "전사 키와 모델은 번역과 따로입니다. 말 조각은 기기 내 모델을 거치지 않고 Google로 갑니다. 고른 두 언어 중 하나로만 적으라고 합니다. 그 글자가 아니면 화면에 두지 않습니다. 용어집이 비어 있거나 직전 원문이 없으면 그 줄은 보내지 않습니다.";
       if (!segBusy) asrNote = "외부 전사 Gemini";
     } else if (route === "none") {
       node.textContent = "전사를 하지 않습니다. 메인 화면에 새 글이 생기지 않습니다.";
       asrNote = "전사 안 함";
     } else if (route === "pc") {
-      node.textContent = "A PC의 Whisper로 적습니다. 이 브라우저는 모델 파일을 받지 않습니다. 말 조각은 PC API 주소의 /inference 로 갑니다. 고른 두 언어의 글자가 아니면 화면에 두지 않습니다.";
+      node.textContent = "이 PC의 받아쓰기로 적습니다. 말 조각은 PC API 주소의 /inference 로 가고, 비밀 키를 같이 보냅니다. 이 브라우저는 모델 파일을 받지 않습니다.";
       if (!segBusy) asrNote = "PC API Whisper";
     } else if (settings.localAsr === "whisper") {
       node.textContent = "기기 안 Whisper tiny로 적습니다. 이 모델을 골랐을 때만 받습니다. 음성은 나가지 않습니다. 말이 이어지는 동안 단어를 바로 띄우고, 뒤 맥락으로 앞 단어가 바뀌면 그 줄을 고칩니다. 언어는 고른 둘 중 하나로 잠급니다.";
@@ -2609,8 +2771,13 @@
     }
   }
 
+  function levelPcm(pcm) {
+    if (!pcm || !pcm.length || !window.RtbClean) return pcm;
+    return window.RtbClean.applyMicLevel(pcm, settings.micLevel || "mid");
+  }
+
   function feedPause(samples, sampleRate) {
-    var pcm = downsample(samples, sampleRate);
+    var pcm = levelPcm(downsample(samples, sampleRate));
     var voiced = pcmRms(pcm) > 0.02;
     if (micStream) {
       voiced = pcmLevel(pcm) >= 8;
@@ -2643,7 +2810,7 @@
       feedPause(samples, sampleRate);
       return;
     }
-    var pcm = downsample(samples, sampleRate);
+    var pcm = levelPcm(downsample(samples, sampleRate));
     if (!pcm || !pcm.length || dropUtt) return;
     if (micStream) uttMic = true;
     winParts.push(pcm);
@@ -2888,7 +3055,7 @@
     body.append("response_format", "json");
     var res = null;
     try {
-      res = await fetch(origin + "/inference", { method: "POST", body: body });
+      res = await fetch(origin + "/inference", { method: "POST", headers: pcAuthHeaders(), body: body });
     } catch (e) {
       asrNote = "PC API에 연결하지 못했습니다";
       refreshStatus();
@@ -2897,13 +3064,19 @@
     }
     var data = null;
     try { data = await res.json(); } catch (e2) { data = null; }
+    if (res.status === 401) {
+      asrNote = "비밀 키가 맞지 않습니다";
+      refreshStatus();
+      if (!quiet) toast(asrNote);
+      return { text: "", lang: "" };
+    }
     if (!res.ok) {
       asrNote = "PC 받아쓰기 실패";
       refreshStatus();
       if (!quiet) toast("PC 받아쓰기가 실패했습니다.");
       return { text: "", lang: "" };
     }
-    var text = data && data.text ? String(data.text).trim() : "";
+    var text = cleanShown(data && data.text ? String(data.text) : "");
     var heardLang = "";
     if (text && textMatchesLang(text, settings.lang1)) heardLang = settings.lang1;
     else if (text && textMatchesLang(text, settings.lang2)) heardLang = settings.lang2;
@@ -2919,8 +3092,12 @@
       toast("외부 전사는 전사 키와 모델을 고르고 저장해야 합니다.");
       return { text: "", lang: "" };
     }
-    var prompt = "고른 언어는 " + settings.lang1 + " 와 " + settings.lang2 + " 뿐이다. 이 음성은 그 둘 중 하나로만 받아 적어라. 어느 쪽인지는 네가 정하라. 둘 다 아니면 text는 빈 문자열로 하라. 그 두 언어의 글자가 아닌 문자는 적지 마라. 번역하지 마라.\n" +
-      glossaryBlock() + "\n" + recentSourceBlock() + "\n용어집의 원어 표기가 소리와 맞으면 그 철자를 쓴다. 응답은 JSON {\"lang\":\"" + settings.lang1 + " 또는 " + settings.lang2 + "\",\"text\":\"...\"} 만.";
+    var prompt = window.RtbClean.joinBlocks([
+      "고른 언어는 " + settings.lang1 + " 와 " + settings.lang2 + " 뿐이다. 이 음성은 그 둘 중 하나로만 받아 적어라. 어느 쪽인지는 네가 정하라. 둘 다 아니면 text는 빈 문자열로 하라. 그 두 언어의 글자가 아닌 문자는 적지 마라. 번역하지 마라.",
+      glossaryBlock(),
+      recentSourceBlock(),
+      "용어집의 원어 표기가 소리와 맞으면 그 철자를 쓴다. 응답은 JSON {\"lang\":\"" + settings.lang1 + " 또는 " + settings.lang2 + "\",\"text\":\"...\"} 만."
+    ]);
     asrNote = "Gemini에 보내는 중";
     refreshStatus();
     var res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent", {
@@ -2955,7 +3132,7 @@
       var rawJson = String(out || "").trim().replace(/^```json\s*/i, "").replace(/```$/, "").trim();
       try { parsed = JSON.parse(rawJson); } catch (e3) { parsed = null; }
     }
-    var text = parsed && (parsed.text || parsed.translation) ? String(parsed.text || parsed.translation) : "";
+    var text = cleanShown(parsed && (parsed.text || parsed.translation) ? String(parsed.text || parsed.translation) : "");
     var heardLang = parsed && parsed.lang ? String(parsed.lang).trim() : "";
     if (heardLang !== settings.lang1 && heardLang !== settings.lang2) {
       if (text && textMatchesLang(text, settings.lang1)) heardLang = settings.lang1;
@@ -3611,6 +3788,9 @@
   });
   document.getElementById("saveSettingsBtn").addEventListener("click", function () {
     commitSettings("설정을 저장했습니다.");
+  });
+  document.getElementById("pcApplyBtn").addEventListener("click", function () {
+    applyPcSettings();
   });
   document.getElementById("modeTest").addEventListener("click", function () { setAppMode("test"); });
   document.getElementById("modeTalk").addEventListener("click", function () { setAppMode("talk"); });
