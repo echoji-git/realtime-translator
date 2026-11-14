@@ -182,10 +182,11 @@ await page.evaluate(() => {
 await page.reload({ waitUntil: "load" });
 
 const version = await page.$eval("#devVersion", (node) => node.textContent);
-if (version.indexOf("v1.041 (261115)") === -1) throw new Error(version);
+if (version.indexOf("v1.042 (261115)") === -1) throw new Error(version);
 const history = await page.$eval("#devHistory", (node) => node.textContent);
 if (history.indexOf("v1.04(261115)") === -1) throw new Error(history);
 if (history.indexOf("v1.041(261115)") === -1) throw new Error(history);
+if (history.indexOf("v1.042(261115)") === -1) throw new Error(history);
 const noFastButton = await page.$("#cutFast");
 if (noFastButton) throw new Error("cutFast still present");
 const googleHint = await page.$eval("#fastGoogleHint", (node) => node.textContent);
@@ -219,6 +220,8 @@ const fastUi = await page.evaluate(() => ({
   cutHidden: document.getElementById("cutOptionBlock").hidden,
   cutNote: document.getElementById("chromeCutNote").textContent,
   cutNoteHidden: document.getElementById("chromeCutNote").hidden,
+  lineHidden: document.getElementById("chromeLineBlock").hidden,
+  lineLabel: document.getElementById("chromeLineVal").textContent,
   segmentDisabled: document.getElementById("segment").disabled
 }));
 if (fastUi.route !== "chrome") throw new Error("chrome not selected " + fastUi.route);
@@ -228,6 +231,7 @@ if (fastUi.google.indexOf("구글") === -1 || fastUi.googleHidden) throw new Err
 if (fastUi.bannerHidden || fastUi.banner.indexOf("마이크 입력 크기") === -1 || fastUi.banner.indexOf("크롬 전사") === -1) throw new Error(fastUi.banner);
 if (!fastUi.asrApi || !fastUi.pc || !fastUi.local || fastUi.trApi) throw new Error("panels " + JSON.stringify(fastUi));
 if (!fastUi.cutHidden || fastUi.cutNoteHidden || fastUi.cutNote.indexOf("크롬 전사에서는 적용되지 않음") === -1) throw new Error(fastUi.cutNote);
+if (fastUi.lineHidden || fastUi.lineLabel.indexOf("쉬면 1.0초") === -1 || fastUi.lineLabel.indexOf("45자") === -1) throw new Error(fastUi.lineLabel);
 if (!fastUi.segmentDisabled) throw new Error("segment still enabled");
 await page.$eval("#asrRoute", (node) => node.scrollIntoView({ block: "center" }));
 await new Promise((r) => setTimeout(r, 250));

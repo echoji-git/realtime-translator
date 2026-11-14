@@ -313,7 +313,13 @@
           <option value="high">크게</option>
         </select>
         <p id="micLevelHint" class="hint">기본은 지금과 같습니다. 작게는 큰 소리를 낮추고, 크게는 작은 소리를 키웁니다. 소리는 잘라서 깨지지 않게 합니다. Gemini와 PC API로 보내기 전에 적용됩니다. 저장을 누르면 이 브라우저에 남습니다.</p>
-        <p id="chromeCutNote" class="hint" hidden>크롬 전사에서는 적용되지 않음</p>
+        <p id="chromeCutNote" class="hint" hidden>겹침, 분절, 기존은 크롬 전사에서는 적용되지 않음</p>
+        <div id="chromeLineBlock" hidden>
+          <label for="chromeLine">줄 길이 <span id="chromeLineVal">쉬면 1.0초 · 최대 45자</span></label>
+          <input id="chromeLine" type="range" min="1" max="5" step="1" value="3">
+          <p id="chromeLineHint" class="hint">말을 쉬면 이 시간 뒤에 줄을 끊습니다. 시간은 마지막 인식 결과 뒤로 새 단어가 없는 동안입니다. 최대 글자에 닿으면 띄어쓰기에서 끊고 남은 말은 다음 줄로 넘깁니다. 띄어쓰기가 없으면 최대 글자에서 끊습니다. 마침표나 물음표에서도 줄을 끊습니다. 줄을 끊어도 듣기는 이어 갑니다.</p>
+          <p id="chromeBeepHint" class="hint">띵 소리는 안드로이드 크롬이 듣기를 다시 시작할 때 내는 소리라 페이지에서 끌 수 없음, 다시 시작을 줄였음</p>
+        </div>
         <div id="cutOptionBlock">
           <label>전사 옵션</label>
           <div class="mode-switch" role="group" aria-label="전사 옵션">
@@ -402,8 +408,9 @@
           <button id="modeTalk" class="bar-btn" type="button">대화모드</button>
         </div>
         <p id="modeHint" class="hint">Test모드는 음성 파일로 확인합니다.</p>
-        <p id="devVersion" class="hint">개발Version 정보 : v1.041 (261115)</p>
+        <p id="devVersion" class="hint">개발Version 정보 : v1.042 (261115)</p>
         <ul id="devHistory" class="hint dev-history">
+          <li>v1.042(261115) : 크롬 전사에 줄 길이 설정을 넣고, 다시 듣기를 줄여 안내음을 덜 낸다</li>
           <li>v1.041(261115) : 전사 제공자 드롭다운에 크롬 전사를 넣고, 전사 옵션의 빠른 자막 버튼을 옮긴다</li>
           <li>v1.01(261114) : 전사로 들어가는 소리를 키우고 선명하게 처리</li>
           <li>v1.02(261114) : 쉬거나 8–15초가 차면 그 구간만 한 번 전송</li>
@@ -474,7 +481,7 @@
     lang1: "ko", lang2: "en", displayMode: "both",
     bgColor: "#0e1a2b", bgImage: "",
     srcSize: 20, tgtSize: 36, srcColor: "#d5dbe3", tgtColor: "#ffffff",
-    maxItems: 0, segment: 1, cutMode: "overlap",
+    maxItems: 0, segment: 1, chromeLine: 3, cutMode: "overlap",
     asrRoute: "gemini", localAsr: "sensevoice",
     asrKey: "", asrModel: "", asrModelIds: [],
     trRoute: "gemini", trKey: "", trModel: "", trModelIds: [],
@@ -587,6 +594,11 @@
   var fastStatus = "";
   var fastRetryMs = 250;
   var fastFailStreak = 0;
+  var fastPrefix = "";
+  var fastNoSpeechStreak = 0;
+  var fastRestartCount = 0;
+  var fastEndNoSpeech = false;
+  var fastHeardWords = false;
   var LITERT_URL = "https://cdn.jsdelivr.net/npm/@litert-lm/core/+esm";
   var GEMMA_DB = "rtb.gemma.v1";
   var GEMMA_DIR = "gemma-weight-v1";
@@ -683,6 +695,8 @@
       persistMigrated = true;
     }
     if (s.cutMode !== "overlap" && s.cutMode !== "cut" && s.cutMode !== "pause") s.cutMode = "overlap";
+    var line = Math.round(Number(s.chromeLine));
+    s.chromeLine = line >= 1 && line <= 5 ? line : 3;
     return s;
   }
 
@@ -769,6 +783,7 @@
     document.getElementById("tgtColor").value = settings.tgtColor;
     document.getElementById("maxItems").value = settings.maxItems;
     document.getElementById("segment").value = settings.segment;
+    document.getElementById("chromeLine").value = settings.chromeLine || 3;
     paintCutMode();
     document.getElementById("trKey").value = settings.trKey || "";
     document.getElementById("asrKey").value = settings.asrKey || "";
@@ -849,7 +864,7 @@
 
   function readAllSettings() {
     ["lang1", "lang2", "displayMode", "asrRoute", "localAsr", "trRoute", "playbackRate", "mdFormat",
-      "bgColor", "srcSize", "tgtSize", "srcColor", "tgtColor", "maxItems", "segment",
+      "bgColor", "srcSize", "tgtSize", "srcColor", "tgtColor", "maxItems", "segment", "chromeLine",
       "trKey", "asrKey", "glossary", "pcKey", "pcTrKey", "pcEngine", "pcSize", "pcTrSize", "micLevel"].forEach(readForm);
     settings.trKey = String(settings.trKey || "").trim();
     settings.asrKey = String(settings.asrKey || "").trim();
@@ -1014,6 +1029,13 @@
       paintSegmentLabel();
       resetWindowClock();
     }
+    if (id === "chromeLine") {
+      var line = Math.round(Number(settings.chromeLine) || 3);
+      if (line < 1) line = 1;
+      if (line > 5) line = 5;
+      settings.chromeLine = line;
+      paintChromeLine();
+    }
     if (id === "bgImage") return;
     if (id === "trKey") clearKeyCheck();
     if (id === "asrKey") {
@@ -1053,7 +1075,7 @@
     if (id === "lang1" && chromeAsr()) {
       paintCutMode();
       updateAsrHint();
-      if (fastOn) openFastRec();
+      if (fastOn) openFastRec({ live: true, restart: true });
     }
     if (id === "displayMode" || id === "lang1" || id === "lang2" || id === "maxItems") render();
   }
@@ -2503,7 +2525,7 @@
       node.textContent = "전사를 하지 않습니다. 메인 화면에 새 글이 생기지 않습니다.";
       asrNote = "전사 안 함";
     } else if (route === "chrome") {
-      node.textContent = "크롬 전사로 적습니다. 말한 소리는 구글 서버로 갑니다. 인식 언어는 언어1(" + langName(settings.lang1) + ")입니다. 단어가 나오는 대로 원문을 고치고, 네 단어가 모이거나 0.45초 쉬면 그 문장을 번역합니다. 같은 문장은 번역을 고쳐 씁니다. 분절 길이와 마이크 입력 크기는 적용되지 않습니다.";
+      node.textContent = "크롬 전사로 적습니다. 말한 소리는 구글 서버로 갑니다. 인식 언어는 언어1(" + langName(settings.lang1) + ")입니다. 단어가 나오는 대로 원문을 고치고, 네 단어가 모이거나 0.45초 쉬면 그 문장을 번역합니다. 같은 문장은 번역을 고쳐 씁니다. 줄 길이만큼 쉬거나 글자가 차면 줄을 나눕니다. 마이크 입력 크기는 적용되지 않습니다.";
       if (!fastOn) asrNote = "크롬 전사";
     } else if (route === "pc") {
       node.textContent = "이 PC의 받아쓰기로 적습니다. 말 조각은 아래 PC API 주소의 /inference 로 가고, 비밀 키를 같이 보냅니다. 이 브라우저는 모델 파일을 받지 않습니다.";
@@ -2848,6 +2870,26 @@
     return true;
   }
 
+  function chromeLinePlan() {
+    var steps = [
+      { pause: 600, chars: 25 },
+      { pause: 800, chars: 35 },
+      { pause: 1000, chars: 45 },
+      { pause: 1300, chars: 60 },
+      { pause: 1600, chars: 80 }
+    ];
+    var step = Math.round(Number(settings.chromeLine) || 3);
+    if (step < 1 || step > 5) step = 3;
+    return steps[step - 1];
+  }
+
+  function paintChromeLine() {
+    var node = document.getElementById("chromeLineVal");
+    if (!node) return;
+    var plan = chromeLinePlan();
+    node.textContent = "쉬면 " + (plan.pause / 1000).toFixed(1) + "초 · 최대 " + plan.chars + "자";
+  }
+
   function pausePlan() {
     var step = segmentSeconds();
     return {
@@ -2888,6 +2930,11 @@
     if (block) block.hidden = chrome;
     var cutNote = document.getElementById("chromeCutNote");
     if (cutNote) cutNote.hidden = !chrome;
+    var lineBlock = document.getElementById("chromeLineBlock");
+    if (lineBlock) lineBlock.hidden = !chrome;
+    var lineInput = document.getElementById("chromeLine");
+    if (lineInput && document.activeElement !== lineInput) lineInput.value = String(settings.chromeLine || 3);
+    paintChromeLine();
     var segment = document.getElementById("segment");
     if (segment) segment.disabled = chrome;
     var mic = document.getElementById("micLevel");
@@ -3143,41 +3190,130 @@
     scheduleFastTranslate(item, !!immediate);
   }
 
+  function rememberPrefix(text) {
+    text = String(text || "").replace(/\s+/g, " ").trim();
+    if (!text) return;
+    var prev = String(fastPrefix || "").replace(/\s+/g, " ").trim();
+    if (!prev) {
+      fastPrefix = text;
+      return;
+    }
+    if (prev === text) return;
+    if (prev.length > text.length && prev.slice(prev.length - text.length) === text) {
+      var before = prev.charAt(prev.length - text.length - 1);
+      if (!before || before === " ") return;
+    }
+    fastPrefix = joinFast(prev, text);
+  }
+
+  function stripPrefix(chunk) {
+    var text = String(chunk || "").replace(/\s+/g, " ").trim();
+    var prefix = String(fastPrefix || "").replace(/\s+/g, " ").trim();
+    if (!text || !prefix) return text;
+    if (text === prefix) return "";
+    if (text.indexOf(prefix) === 0) {
+      var next = text.charAt(prefix.length);
+      if (!next || next === " ") return text.slice(prefix.length).trim();
+    }
+    fastPrefix = "";
+    return text;
+  }
+
   function closeFastSentence() {
     if (fastCloseTimer) clearTimeout(fastCloseTimer);
     fastCloseTimer = 0;
+    var text = joinFast(fastStable, fastInterim);
     var item = fastItem;
     if (item && !item.fastClosed) {
-      if (fastInterim) {
-        fastStable = joinFast(fastStable, fastInterim);
-        fastInterim = "";
-      }
       item.fastInterim = "";
-      item.fastStable = fastStable || item.srcText || "";
+      item.fastStable = text || item.srcText || "";
       item.srcText = item.fastStable;
       item.fastClosed = true;
       if (item.srcText) scheduleFastTranslate(item, true);
       saveRecords();
       render();
     }
+    if (text) rememberPrefix(text);
     fastItem = null;
     fastStable = "";
     fastInterim = "";
   }
 
-  function scheduleFastClose() {
+  function armChromePause() {
     if (fastCloseTimer) clearTimeout(fastCloseTimer);
+    fastCloseTimer = 0;
+    if (!joinFast(fastStable, fastInterim)) return;
+    var pause = chromeLinePlan().pause;
     fastCloseTimer = setTimeout(function () {
       fastCloseTimer = 0;
       closeFastSentence();
-    }, 1600);
+    }, pause);
+  }
+
+  function chromeSplit(full, maxChars) {
+    full = String(full || "").replace(/\s+/g, " ").trim();
+    if (full.length < maxChars) return null;
+    if (full.length === maxChars) return { head: full, rest: "" };
+    var windowText = full.slice(0, maxChars);
+    var space = windowText.lastIndexOf(" ");
+    if (space <= 0) {
+      return { head: full.slice(0, maxChars).trim(), rest: full.slice(maxChars).trim() };
+    }
+    return { head: full.slice(0, space).trim(), rest: full.slice(space + 1).trim() };
+  }
+
+  function finishHeadKeepRest(head, rest) {
+    fastStable = head;
+    fastInterim = "";
+    publishFastLine(true);
+    var item = fastItem;
+    if (item && !item.fastClosed) {
+      item.srcText = head;
+      item.fastStable = head;
+      item.fastInterim = "";
+      item.fastClosed = true;
+      scheduleFastTranslate(item, true);
+    }
+    rememberPrefix(head);
+    fastItem = null;
+    fastStable = rest;
+    fastInterim = "";
+    saveRecords();
+    if (rest) publishFastLine(false);
+    render();
+  }
+
+  function settleChromeBreaks() {
+    var guard = 0;
+    while (guard < 8) {
+      guard += 1;
+      var full = joinFast(fastStable, fastInterim);
+      if (!full) return;
+      var plan = chromeLinePlan();
+      var over = full.length >= plan.chars;
+      var ends = !fastInterim && window.RtbClean.fastEndsSentence(full);
+      if (!over && !ends) return;
+      if (over) {
+        var parts = chromeSplit(full, plan.chars);
+        if (!parts) return;
+        if (!parts.rest) {
+          fastStable = parts.head;
+          fastInterim = "";
+          publishFastLine(true);
+          closeFastSentence();
+          return;
+        }
+        finishHeadKeepRest(parts.head, parts.rest);
+        continue;
+      }
+      publishFastLine(true);
+      closeFastSentence();
+      return;
+    }
   }
 
   function onFastResult(event) {
-    if (fastCloseTimer) {
-      clearTimeout(fastCloseTimer);
-      fastCloseTimer = 0;
-    }
+    var before = joinFast(fastStable, fastInterim);
     var finalChunk = "";
     var interimChunk = "";
     var results = event && event.results ? event.results : [];
@@ -3189,10 +3325,13 @@
       if (results[i].isFinal) finalChunk += piece;
       else interimChunk += piece;
     }
+    finalChunk = stripPrefix(finalChunk);
+    interimChunk = stripPrefix(interimChunk);
     var gotFinal = !!String(finalChunk).trim();
     if (gotFinal) {
       var absorbed = absorbFast(fastStable, finalChunk, true);
       fastStable = absorbed.stable;
+      fastPrefix = "";
     }
     if (String(interimChunk).trim()) {
       var live = absorbFast(fastStable, interimChunk, false);
@@ -3201,9 +3340,19 @@
     } else if (gotFinal) {
       fastInterim = "";
     }
-    var done = gotFinal && !fastInterim && (window.RtbClean.fastEndsSentence(fastStable) || String(fastStable).length >= 80);
-    publishFastLine(gotFinal || done);
-    if (done) closeFastSentence();
+    var after = joinFast(fastStable, fastInterim);
+    var grew = !!after && after !== before;
+    if (grew) {
+      fastNoSpeechStreak = 0;
+      fastHeardWords = true;
+      fastEndNoSpeech = false;
+    }
+    settleChromeBreaks();
+    var now = joinFast(fastStable, fastInterim);
+    if (now) {
+      publishFastLine(gotFinal && !fastInterim);
+      if (grew || !fastCloseTimer) armChromePause();
+    }
   }
 
   function fastErrorText(code) {
@@ -3238,37 +3387,61 @@
     if (code === "network" || code === "audio-capture") {
       fastFailStreak += 1;
       fastRetryMs = 800;
-      fastStatus = message;
+      fastStatus = message + restartTail();
       refreshStatus();
       if (fastFailStreak === 1) toast(message);
       if (fastFailStreak >= 5) haltFast("여러 번 연결하지 못해 크롬 전사를 멈췄습니다");
       return;
     }
-    fastRetryMs = 250;
-    fastStatus = message;
+    if (code === "no-speech") {
+      fastNoSpeechStreak += 1;
+      fastEndNoSpeech = true;
+      fastStatus = message + restartTail();
+      refreshStatus();
+      return;
+    }
+    fastStatus = message + restartTail();
     refreshStatus();
+  }
+
+  function restartTail() {
+    if (!fastRestartCount) return "";
+    return " · 다시 듣기 " + fastRestartCount + "회";
+  }
+
+  function silenceRestartDelay() {
+    if (fastNoSpeechStreak <= 1) return 250;
+    if (fastNoSpeechStreak === 2) return 1000;
+    return 2000;
   }
 
   function onFastEnd(rec) {
     if (fastRec !== rec) return;
+    var heard = fastHeardWords || !!joinFast(fastStable, fastInterim);
     if (fastInterim) {
       fastStable = joinFast(fastStable, fastInterim);
       fastInterim = "";
       publishFastLine(true);
     }
-    scheduleFastClose();
     if (!fastOn) return;
-    var delay = fastRetryMs || 250;
+    var delay = fastRetryMs > 250 ? fastRetryMs : 0;
     fastRetryMs = 250;
+    if (!delay) {
+      if (!fastEndNoSpeech && !heard) fastNoSpeechStreak += 1;
+      if (fastEndNoSpeech || !heard) delay = silenceRestartDelay();
+    }
+    fastEndNoSpeech = false;
+    fastHeardWords = false;
     if (fastRestartTimer) clearTimeout(fastRestartTimer);
     fastRestartTimer = setTimeout(function () {
       fastRestartTimer = 0;
       if (!fastOn) return;
-      openFastRec();
+      openFastRec({ restart: true });
     }, delay);
   }
 
-  function openFastRec() {
+  function openFastRec(opts) {
+    opts = opts || {};
     var Ctor = speechCtor();
     if (!Ctor || !fastOn) return;
     var previous = fastRec;
@@ -3280,8 +3453,11 @@
         previous.onresult = null;
         previous.onstart = null;
       } catch (e) {}
-      try { previous.abort(); } catch (e2) {}
+      if (opts.live) {
+        try { previous.abort(); } catch (e2) {}
+      }
     }
+    if (opts.restart) fastRestartCount += 1;
     var rec = new Ctor();
     rec.continuous = true;
     rec.interimResults = true;
@@ -3291,7 +3467,7 @@
     rec.onend = function () { onFastEnd(rec); };
     rec.onstart = function () {
       fastFailStreak = 0;
-      fastStatus = "크롬 전사 듣는 중 · " + langName(settings.lang1);
+      fastStatus = "크롬 전사 듣는 중 · " + langName(settings.lang1) + restartTail();
       refreshStatus();
     };
     fastRec = rec;
@@ -3314,6 +3490,11 @@
     fastOn = true;
     fastFailStreak = 0;
     fastRetryMs = 250;
+    fastNoSpeechStreak = 0;
+    fastRestartCount = 0;
+    fastEndNoSpeech = false;
+    fastHeardWords = false;
+    fastPrefix = "";
     fastStatus = "크롬 전사 연결 중";
     setMicUi(true);
     setRunning(true);
@@ -3326,6 +3507,12 @@
     fastOn = false;
     fastStatus = "";
     fastFailStreak = 0;
+    fastNoSpeechStreak = 0;
+    fastRestartCount = 0;
+    fastEndNoSpeech = false;
+    fastHeardWords = false;
+    fastPrefix = "";
+    fastRetryMs = 250;
     if (fastRestartTimer) clearTimeout(fastRestartTimer);
     fastRestartTimer = 0;
     if (fastCloseTimer) clearTimeout(fastCloseTimer);
