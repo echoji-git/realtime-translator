@@ -78,14 +78,15 @@ await page.evaluate(() => localStorage.clear());
 await page.reload({ waitUntil: "load" });
 
 const version = await page.$eval("#devVersion", (node) => node.textContent);
-if (version.indexOf("v1.041 (261115)") === -1) throw new Error(version);
+if (version.indexOf("v1.042 (261115)") === -1) throw new Error(version);
 const history = await page.$eval("#devHistory", (node) => node.textContent);
+if (history.indexOf("v1.042(261115)") === -1) throw new Error("missing v1.042 history");
 if (history.indexOf("v1.041(261115)") === -1) throw new Error("missing v1.041 history");
 if (history.indexOf("v1.01(261114)") === -1 || history.indexOf("v1.04(261115)") === -1) {
   throw new Error("old history removed");
 }
 const historyTop = await page.$eval("#devHistory li", (node) => node.textContent);
-if (historyTop.indexOf("v1.041(261115)") !== 0) throw new Error(historyTop);
+if (historyTop.indexOf("v1.042(261115)") !== 0) throw new Error(historyTop);
 if (await page.$("#cutFast")) throw new Error("빠른 자막 버튼이 남아 있음");
 
 await page.evaluate(() => document.getElementById("menuBtn").click());
@@ -142,6 +143,9 @@ const selected = await page.evaluate(() => ({
   cutHidden: document.getElementById("cutOptionBlock").hidden,
   cutNoteHidden: document.getElementById("chromeCutNote").hidden,
   cutNote: document.getElementById("chromeCutNote").textContent,
+  lineHidden: document.getElementById("chromeLineBlock").hidden,
+  lineLabel: document.getElementById("chromeLineVal").textContent,
+  beep: document.getElementById("chromeBeepHint").textContent,
   supportHidden: document.getElementById("chromeSupportHint").hidden
 }));
 if (selected.route !== "chrome" || selected.label !== "크롬 전사") throw new Error(JSON.stringify(selected));
@@ -151,8 +155,11 @@ if (selected.googleHidden || selected.google.indexOf("구글 서버") === -1) th
 if (selected.asrHint.indexOf("네 단어") === -1 || selected.asrHint.indexOf("0.45초") === -1) throw new Error(selected.asrHint);
 if (selected.mic.indexOf("적용되지 않습니다") === -1 || !selected.micDisabled) throw new Error(selected.mic);
 if (selected.banner.indexOf("크롬 전사") === -1 || selected.banner.indexOf("구글 서버") === -1) throw new Error(selected.banner);
-if (!selected.cutHidden || selected.cutNoteHidden || selected.cutNote !== "크롬 전사에서는 적용되지 않음") {
+if (!selected.cutHidden || selected.cutNoteHidden || selected.cutNote.indexOf("크롬 전사에서는 적용되지 않음") === -1) {
   throw new Error(selected.cutNote);
+}
+if (selected.lineHidden || selected.lineLabel.indexOf("쉬면 1.0초") === -1 || selected.beep.indexOf("띵 소리") === -1) {
+  throw new Error(selected.lineLabel + " " + selected.beep);
 }
 if (!selected.supportHidden) throw new Error("unsupported hint shown on chrome");
 await page.$eval("#fastGoogleHint", (node) => node.scrollIntoView({ block: "center" }));
