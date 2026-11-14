@@ -120,6 +120,8 @@
   .row { display: flex; gap: 8px; }
   .row > * { flex: 1; }
   .hint { color: var(--muted); font-size: 12px; line-height: 1.45; }
+  .dev-history { margin: 4px 0 0; padding-left: 1.1em; }
+  .dev-history li { margin: 2px 0; }
   #fileList, #scriptList { list-style: none; padding: 0; margin: 8px 0; }
   #fileList li, #scriptList li { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 6px; font-size: 13px; }
   #scriptList span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -328,7 +330,11 @@
           <button id="modeTalk" class="bar-btn" type="button">대화모드</button>
         </div>
         <p id="modeHint" class="hint">Test모드는 음성 파일로 확인합니다.</p>
-        <p id="devVersion" class="hint">개발Version 정보 : v1.00 (261114)</p>
+        <p id="devVersion" class="hint">개발Version 정보 : v1.01 (261114)</p>
+        <ul id="devHistory" class="hint dev-history">
+          <li>v1.01 (261114) : 전사로 들어가는 마이크와 파일 소리를 녹음앱처럼 키우고 선명하게 처리함. 80 Hz 아래를 걷고, 3 kHz를 올리고, 작은 소리는 4배로 키운 뒤 큰 소리는 누름.</li>
+          <li>v1.00 (261114) : 세부 설정 아래에 개발 버전을 표시함.</li>
+        </ul>
       </div>
     </section>
   </div>
@@ -445,6 +451,8 @@
   var asrPromise = null;
   var asrProc = null;
   var asrSink = null;
+  var speechIn = null;
+  var speechSources = typeof WeakSet === "function" ? new WeakSet() : null;
   var vad = null;
   var asrBuffer = null;
   var senseByLang = {};
@@ -2904,9 +2912,41 @@
     };
   }
 
-  function connectAsr(node) {
+  function ensureSpeechChain() {
     ensureAsrTap();
-    try { node.connect(asrProc); } catch (e) {}
+    if (speechIn) return speechIn;
+    var rumble = audioCtx.createBiquadFilter();
+    rumble.type = "highpass";
+    rumble.frequency.value = 80;
+    rumble.Q.value = 0.707;
+    var presence = audioCtx.createBiquadFilter();
+    presence.type = "peaking";
+    presence.frequency.value = 3000;
+    presence.Q.value = 1;
+    presence.gain.value = 6;
+    var gain = audioCtx.createGain();
+    gain.gain.value = 4;
+    var compressor = audioCtx.createDynamicsCompressor();
+    compressor.threshold.value = -18;
+    compressor.knee.value = 12;
+    compressor.ratio.value = 3;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.25;
+    rumble.connect(presence);
+    presence.connect(gain);
+    gain.connect(compressor);
+    compressor.connect(asrProc);
+    speechIn = rumble;
+    return speechIn;
+  }
+
+  function connectAsr(node) {
+    ensureSpeechChain();
+    if (!node || (speechSources && speechSources.has(node))) return;
+    try {
+      node.connect(speechIn);
+      if (speechSources) speechSources.add(node);
+    } catch (e) {}
   }
 
   function bootRecognizer(Module) {
