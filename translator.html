@@ -122,11 +122,6 @@
   .hint { color: var(--muted); font-size: 12px; line-height: 1.45; }
   .dev-history { margin: 4px 0 0; padding-left: 1.1em; }
   .dev-history li { margin: 2px 0; }
-  .dev-note { margin: 6px 0 2px; }
-  .dev-plan { margin: 4px 0 6px; }
-  .dev-plan div { margin: 0 0 6px; padding-top: 4px; border-top: 1px solid var(--line); }
-  .dev-plan dt { color: var(--accent); }
-  .dev-plan dd { margin: 0; }
   #fileList, #scriptList { list-style: none; padding: 0; margin: 8px 0; }
   #fileList li, #scriptList li { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 6px; font-size: 13px; }
   #scriptList span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -258,7 +253,7 @@
       <div id="fold-segment" class="fold-body" hidden>
         <label for="segment">분절 길이 <span id="segmentVal"></span></label>
         <input id="segment" type="range" min="1" max="5" step="1">
-        <p class="hint">1은 무음 0.4초·최대 4초, 5는 무음 1.2초·최대 15초입니다. Gemini 음성과 PC API는 말하는 동안에도 그 간격으로 글을 받아 보여 줍니다. Gemini는 받아 올 때마다 한도가 줄어듭니다.</p>
+        <p class="hint">1은 0.8초 쉼 또는 최대 8초, 5는 1.5초 쉼 또는 최대 15초입니다. 말이 쉬거나 최대 길이가 차면 그 구간을 한 번만 보냅니다. 말하는 중간에 같은 소리를 다시 적지 않습니다.</p>
       </div>
     </section>
     <section class="fold" data-fold="screen">
@@ -335,22 +330,11 @@
           <button id="modeTalk" class="bar-btn" type="button">대화모드</button>
         </div>
         <p id="modeHint" class="hint">Test모드는 음성 파일로 확인합니다.</p>
-        <p id="devVersion" class="hint">개발Version 정보 : v1.01 (261114)</p>
+        <p id="devVersion" class="hint">개발Version 정보 : v1.02 (261114)</p>
         <ul id="devHistory" class="hint dev-history">
-          <li>v1.01 (261114) : 전사로 들어가는 마이크와 파일 소리를 녹음앱처럼 키우고 선명하게 처리함. 80 Hz 아래를 걷고, 3 kHz를 올리고, 작은 소리는 4배로 키운 뒤 큰 소리는 누름.
-            <p class="dev-note">주석 · 로컬 데스크탑에서 쓸 수준 (예정)</p>
-            <dl class="dev-plan">
-              <div>
-                <dt>받아쓰기 · Whisper base</dt>
-                <dd>small보다 가볍고, 한국어·영어 회의에서 tiny보다 글이 덜 무너집니다.</dd>
-              </div>
-              <div>
-                <dt>번역 · gemma3:1b 같은 1B급</dt>
-                <dd>짧은 문장 번역이면 충분하고, 4B가 차지하던 카드 시간을 받아쓰기에 돌려줍니다.</dd>
-              </div>
-            </dl>
-          </li>
-          <li>v1.00 (261114) : 세부 설정 아래에 개발 버전을 표시함.</li>
+          <li>v1.00(261114) : 세부 설정에 개발 버전을 표시</li>
+          <li>v1.01(261114) : 전사로 들어가는 소리를 키우고 선명하게 처리</li>
+          <li>v1.02(261114) : 쉬거나 8–15초가 차면 그 구간만 한 번 전송</li>
         </ul>
       </div>
     </section>
@@ -486,8 +470,6 @@
   var partialGen = 0;
   var asrEpoch = 0;
   var pendingPcm = [];
-  var partialBusy = false;
-  var partialAgain = false;
   var dropUtt = false;
   var uttMic = false;
   var ASR_BASE = "https://huggingface.co/jpssff/sherpa-onnx-sense-voice/resolve/main/";
@@ -667,7 +649,7 @@
     paintModelSelect("asr");
     document.getElementById("srcSizeVal").textContent = settings.srcSize + "px";
     document.getElementById("tgtSizeVal").textContent = settings.tgtSize + "px";
-    document.getElementById("segmentVal").textContent = String(settings.segment);
+    paintSegmentLabel();
     syncEnginePanels();
   }
 
@@ -881,7 +863,7 @@
     readForm(id);
     if (id === "srcSize") document.getElementById("srcSizeVal").textContent = settings.srcSize + "px";
     if (id === "tgtSize") document.getElementById("tgtSizeVal").textContent = settings.tgtSize + "px";
-    if (id === "segment") document.getElementById("segmentVal").textContent = String(settings.segment);
+    if (id === "segment") paintSegmentLabel();
     if (id === "bgImage") return;
     if (id === "trKey") clearKeyCheck();
     if (id === "asrKey") {
@@ -2264,10 +2246,14 @@
 
   function segmentPlan() {
     var step = Math.max(1, Math.min(5, Number(settings.segment) || 3));
-    var silence = [400, 550, 700, 950, 1200][step - 1];
-    var maxSec = [4, 6, 8, 11, 15][step - 1];
-    var partialMs = [800, 1100, 1500, 2000, 2500][step - 1];
-    return { step: step, silence: silence, max: maxSec, partial: partialMs };
+    var silence = [800, 1000, 1200, 1400, 1500][step - 1];
+    var maxSec = [8, 10, 12, 14, 15][step - 1];
+    return { step: step, silence: silence, max: maxSec };
+  }
+
+  function paintSegmentLabel() {
+    var plan = segmentPlan();
+    document.getElementById("segmentVal").textContent = "쉼 " + (plan.silence / 1000) + "초 · 최대 " + plan.max + "초";
   }
 
   function feedExternal(samples, sampleRate) {
@@ -2356,76 +2342,6 @@
     uttParts.push(pcm);
     uttCount += pcm.length;
     uttNew += pcm.length;
-    var gap = Math.round(16000 * segmentPlan().partial / 1000);
-    if (uttCount >= Math.min(6400, gap) && uttNew >= gap) schedulePartial();
-  }
-
-  function schedulePartial() {
-    if (uttCount < 7200 || dropUtt) return;
-    if (partialBusy) {
-      partialAgain = true;
-      return;
-    }
-    partialBusy = true;
-    partialAgain = false;
-    uttNew = 0;
-    var gen = partialGen;
-    var samples = takeUtt();
-    runPartial(samples, gen).then(function () {
-      partialBusy = false;
-      if (partialAgain && gen === partialGen && uttCount && !dropUtt) schedulePartial();
-    }, function () {
-      partialBusy = false;
-    });
-  }
-
-  async function runPartial(samples, gen) {
-    var epoch = asrEpoch;
-    try {
-      if (settings.asrRoute === "gemini" || settings.asrRoute === "pc") {
-        if (gen !== partialGen || dropUtt || epoch !== asrEpoch) return;
-        var heard = settings.asrRoute === "pc" ? await pcTranscribeText(samples, true) : await geminiTranscribeText(samples, true);
-        if (gen !== partialGen || dropUtt || epoch !== asrEpoch) return;
-        var live = repeatedTake(correctSpelling(heard.text || ""));
-        if (!live || !heard.lang || !textMatchesLang(live, heard.lang)) return;
-        uttLang = heard.lang;
-        interim = live;
-        render();
-        return;
-      }
-      if (gen !== partialGen || dropUtt || epoch !== asrEpoch) return;
-      var lang = uttLang;
-      if (!lang && settings.localAsr === "sensevoice") {
-        var pickedNow = sensePickLanguage(samples);
-        if (gen !== partialGen || dropUtt || epoch !== asrEpoch) return;
-        if (!pickedNow.lang) return;
-        uttLang = pickedNow.lang;
-        interim = pickedNow.text;
-        render();
-        return;
-      }
-      if (!lang) {
-        lang = await decideLanguage(samples);
-        if (gen !== partialGen || dropUtt || epoch !== asrEpoch) return;
-        uttLang = lang;
-      }
-      var text = "";
-      if (settings.asrRoute === "local" && settings.localAsr !== "whisper") text = senseTranscribe(samples, lang);
-      else text = await whisperTranscribe(samples, lang);
-      if (gen !== partialGen || dropUtt || epoch !== asrEpoch) return;
-      text = correctSpelling(String(text || "").trim());
-      if (!text || !fitsSelectedLanguages(text)) return;
-      text = repeatedTake(text);
-      if (!text) {
-        if (interim) {
-          interim = "";
-          render();
-        }
-        return;
-      }
-      interim = text;
-      render();
-    } catch (e) {}
   }
 
   function finishUtterance(samples) {
