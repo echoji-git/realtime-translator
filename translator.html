@@ -253,7 +253,7 @@
       <div id="fold-segment" class="fold-body" hidden>
         <label for="segment">분절 길이 <span id="segmentVal"></span></label>
         <input id="segment" type="range" min="1" max="5" step="1">
-        <p class="hint">이 초마다 오디오를 한 번씩 보냅니다. 경계 0.2초를 겹칩니다. 1초면 0–1.2초, 다음이 0.8–2.2초, 그다음이 1.8–3.2초입니다. 인식한 말과 번역은 같은 줄에 이어 붙습니다.</p>
+        <p class="hint">이 초마다 오디오를 한 번씩 보냅니다. 경계 0.2초를 겹칩니다. 1초면 0–1.2초, 다음이 0.8–2.2초입니다. 다음 구간이 잘린 단어를 더 온전히 들으면 그 단어로 앞 끝을 바꿉니다.</p>
       </div>
     </section>
     <section class="fold" data-fold="screen">
@@ -330,12 +330,13 @@
           <button id="modeTalk" class="bar-btn" type="button">대화모드</button>
         </div>
         <p id="modeHint" class="hint">Test모드는 음성 파일로 확인합니다.</p>
-        <p id="devVersion" class="hint">개발Version 정보 : v1.03 (261114)</p>
+        <p id="devVersion" class="hint">개발Version 정보 : v1.031 (261114)</p>
         <ul id="devHistory" class="hint dev-history">
           <li>v1.00(261114) : 세부 설정에 개발 버전을 표시</li>
           <li>v1.01(261114) : 전사로 들어가는 소리를 키우고 선명하게 처리</li>
           <li>v1.02(261114) : 쉬거나 8–15초가 차면 그 구간만 한 번 전송</li>
           <li>v1.03(261114) : 분절 초마다 0.2초를 겹쳐 보내고 말과 번역을 이어 붙임</li>
+          <li>v1.031(261114) : 겹친 구간의 잘린 단어를 다음 인식으로 고쳐 잇는다</li>
         </ul>
       </div>
     </section>
@@ -2132,25 +2133,59 @@
   }
 
   function mergeHeard(prev, next) {
-    prev = String(prev || "").replace(/\s+/g, " ").trim();
-    next = String(next || "").replace(/\s+/g, " ").trim();
-    if (!prev) return next;
-    if (!next) return prev;
-    if (prev === next) return prev;
-    var maxC = Math.min(prev.length, next.length, 30);
-    var cut = 0;
-    var c = 0;
-    for (c = maxC; c >= 1; c--) {
-      if (prev.slice(prev.length - c) === next.slice(0, c)) {
-        cut = c;
+    function compact(value) {
+      var raw = String(value || "").replace(/\s+/g, " ").trim();
+      var chars = "";
+      var map = [];
+      var i = 0;
+      for (i = 0; i < raw.length; i++) {
+        if (raw.charAt(i) === " ") continue;
+        chars += raw.charAt(i);
+        map.push(i);
+      }
+      return { raw: raw, chars: chars, map: map };
+    }
+    function tailMismatch(suffix, prefix) {
+      if (!suffix || suffix.length !== prefix.length) return 99;
+      if (suffix.charAt(0) !== prefix.charAt(0)) return 99;
+      var mismatches = 0;
+      var firstBad = -1;
+      var i = 0;
+      for (i = 0; i < suffix.length; i++) {
+        if (suffix.charAt(i) !== prefix.charAt(i)) {
+          mismatches += 1;
+          if (firstBad < 0) firstBad = i;
+        }
+      }
+      if (mismatches > (suffix.length >= 6 ? 2 : 1)) return 99;
+      if (firstBad >= 0 && firstBad < suffix.length - 2) return 99;
+      return mismatches;
+    }
+    function joinTexts(left, right) {
+      var leftSpace = /\s$/.test(left);
+      left = left.replace(/\s+$/, "");
+      right = right.replace(/^\s+/, "");
+      if (!left) return right;
+      if (!right) return left;
+      if (leftSpace || /[A-Za-z0-9]$/.test(left) && /^[A-Za-z0-9]/.test(right)) return left + " " + right;
+      return left + right;
+    }
+    var before = compact(prev);
+    var after = compact(next);
+    if (!before.chars) return after.raw;
+    if (!after.chars) return before.raw;
+    if (before.chars === after.chars) return before.raw;
+    var maxK = Math.min(before.chars.length, after.chars.length, 24);
+    var bestK = 0;
+    var k = 0;
+    for (k = maxK; k >= 2; k--) {
+      if (tailMismatch(before.chars.slice(before.chars.length - k), after.chars.slice(0, k)) <= (k >= 6 ? 2 : 1)) {
+        bestK = k;
         break;
       }
     }
-    if (cut >= 2 || (cut === 1 && (prev.length <= 4 || next.length <= 4))) {
-      return (prev + next.slice(cut)).replace(/\s+/g, " ").trim();
-    }
-    if (/[A-Za-z]$/.test(prev) && /^[A-Za-z]/.test(next)) return prev + " " + next;
-    return prev + next;
+    if (!bestK) return joinTexts(before.raw, after.raw);
+    return joinTexts(before.raw.slice(0, before.map[before.chars.length - bestK]), after.raw);
   }
 
   function scheduleTranslate(item) {
