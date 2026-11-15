@@ -50,9 +50,9 @@ await page.evaluate(() => localStorage.clear());
 await page.reload({ waitUntil: "load" });
 
 const version = await page.$eval("#devVersion", (node) => node.textContent);
-if (version.indexOf("v1.044 (261115)") === -1) throw new Error(version);
+if (version.indexOf("v1.045 (261115)") === -1) throw new Error(version);
 const historyTop = await page.$eval("#devHistory li", (node) => node.textContent);
-if (historyTop.indexOf("v1.044(261115)") !== 0) throw new Error(historyTop);
+if (historyTop.indexOf("v1.045(261115)") !== 0) throw new Error(historyTop);
 
 await page.evaluate(() => document.getElementById("menuBtn").click());
 await page.evaluate(() => document.querySelector('#sidebar .fold[data-fold="segment"] .fold-btn').click());

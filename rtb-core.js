@@ -460,6 +460,163 @@
     return wait > 0 ? wait : 0;
   }
 
+  // Whisper 스트리밍.
+  // 약 1초마다 모아 둔 소리(최대 15초)를 다시 전사하고,
+  // 직전 결과와 이번 결과에서 같은 앞부분만 확정한다.
+  // 문장 부호, 짧은 쉼, 줄 길이에서 그 확정분을 번역으로 넘긴다.
+  var STREAM_EVERY_SAMPLES = 16000;
+  var STREAM_MIN_SAMPLES = 12800;
+  var STREAM_MAX_SAMPLES = 16000 * 15;
+
+  function streamNorm(text) {
+    return String(text || "").replace(/\s+/g, " ").trim().toLowerCase();
+  }
+
+  function streamTokens(text) {
+    var raw = String(text || "").replace(/\s+/g, " ").trim();
+    if (!raw) return [];
+    var parts = raw.split(" ");
+    var out = [];
+    var i;
+    for (i = 0; i < parts.length; i++) {
+      var part = parts[i];
+      var matched = part.match(/^(.*?)([.?!…。？！]+)$/);
+      if (matched && matched[1]) {
+        out.push(matched[1]);
+        out.push(matched[2]);
+      } else if (part) {
+        out.push(part);
+      }
+    }
+    return out;
+  }
+
+  function joinStreamTokens(tokens) {
+    var out = "";
+    var i;
+    for (i = 0; i < tokens.length; i++) {
+      var tok = tokens[i];
+      if (!tok) continue;
+      if (/^[.?!…。？！]+$/.test(tok)) out += tok;
+      else out += (out ? " " : "") + tok;
+    }
+    return out.replace(/\s+/g, " ").trim();
+  }
+
+  function streamAgree(prev, curr) {
+    var a = streamTokens(prev);
+    var b = streamTokens(curr);
+    var i = 0;
+    while (i < a.length && i < b.length && streamNorm(a[i]) === streamNorm(b[i])) i++;
+    var confirmed = joinStreamTokens(b.slice(0, i));
+    var full = joinStreamTokens(b);
+    var tail = full.indexOf(confirmed) === 0 ? full.slice(confirmed.length).trim() : joinStreamTokens(b.slice(i));
+    return { confirmed: confirmed, tail: tail, full: full };
+  }
+
+  function streamExtend(held, prev, curr) {
+    var agree = streamAgree(prev, curr);
+    var confirmed = agree.confirmed;
+    var full = agree.full;
+    held = String(held || "").replace(/\s+/g, " ").trim();
+    if (held) {
+      if (full.indexOf(held) === 0) {
+        if (confirmed.indexOf(held) !== 0) confirmed = held;
+      } else {
+        confirmed = streamAgree(held, full).confirmed;
+      }
+    }
+    var tail = "";
+    if (confirmed && full.indexOf(confirmed) === 0) tail = full.slice(confirmed.length).trim();
+    else if (!confirmed) tail = full;
+    else tail = agree.tail;
+    return { prev: full, confirmed: confirmed, tail: tail };
+  }
+
+  function streamLastPunct(text) {
+    var t = String(text || "").replace(/\s+/g, " ").trim();
+    var last = -1;
+    var i;
+    for (i = 0; i < t.length; i++) {
+      if (".?!…。？！".indexOf(t.charAt(i)) >= 0) last = i;
+    }
+    if (last < 0) return { commit: "", keep: t };
+    return { commit: t.slice(0, last + 1).trim(), keep: t.slice(last + 1).trim() };
+  }
+
+  function streamCommit(confirmed, tail, spec) {
+    spec = spec || {};
+    var text = String(confirmed || "").replace(/\s+/g, " ").trim();
+    var restTail = String(tail || "").replace(/\s+/g, " ").trim();
+    var maxChars = Math.round(Number(spec.maxChars) || 45);
+    if (maxChars < 8) maxChars = 8;
+    if (spec.force) {
+      return {
+        commit: [text, restTail].filter(Boolean).join(" ").trim(),
+        keepConfirmed: "",
+        keepTail: ""
+      };
+    }
+    var commit = "";
+    var keep = text;
+    var cut = streamLastPunct(text);
+    if (cut.commit) {
+      commit = cut.commit;
+      keep = cut.keep;
+    }
+    if (!commit && text.length > maxChars) {
+      var split = splitTranscriptLine(text, maxChars);
+      if (split && split.head) {
+        commit = split.head;
+        keep = split.rest;
+      }
+    }
+    if (spec.pause) {
+      commit = [commit, keep].filter(Boolean).join(" ").trim();
+      keep = "";
+    }
+    return { commit: commit, keepConfirmed: keep, keepTail: restTail };
+  }
+
+  function streamTrimSeconds(segments, committed) {
+    var want = streamNorm(committed);
+    if (!want || !segments || !segments.length) return 0;
+    var acc = "";
+    var end = 0;
+    var i;
+    for (i = 0; i < segments.length; i++) {
+      var seg = segments[i] || {};
+      var piece = streamNorm(seg.text);
+      if (!piece) continue;
+      var next = acc ? acc + " " + piece : piece;
+      var segEnd = Number(seg.end);
+      if (!isFinite(segEnd) || segEnd < 0) segEnd = end;
+      if (want.indexOf(next) === 0 || next.indexOf(want) === 0) {
+        acc = next;
+        end = segEnd;
+        if (next.length >= want.length || next.indexOf(want) === 0) return end;
+      } else if (acc && want.indexOf(acc) === 0) {
+        return end;
+      } else {
+        break;
+      }
+    }
+    return end;
+  }
+
+  function streamTrimRatio(committed, full) {
+    var c = streamNorm(committed).length;
+    var f = streamNorm(full).length;
+    if (!c || !f) return 0;
+    var ratio = c / f;
+    if (ratio > 1) ratio = 1;
+    return ratio;
+  }
+
+  function pcApplyEngine(engine) {
+    return engine === "whisper-stream" ? "whisper" : String(engine || "whisper");
+  }
+
   return {
     EMPTY_RECENT: EMPTY_RECENT,
     PC_MODELS: PC_MODELS,
@@ -499,6 +656,15 @@
     fastUnitCount: fastUnitCount,
     fastDelta: fastDelta,
     fastEndsSentence: fastEndsSentence,
-    fastTranslateWait: fastTranslateWait
+    fastTranslateWait: fastTranslateWait,
+    STREAM_EVERY_SAMPLES: STREAM_EVERY_SAMPLES,
+    STREAM_MIN_SAMPLES: STREAM_MIN_SAMPLES,
+    STREAM_MAX_SAMPLES: STREAM_MAX_SAMPLES,
+    streamAgree: streamAgree,
+    streamExtend: streamExtend,
+    streamCommit: streamCommit,
+    streamTrimSeconds: streamTrimSeconds,
+    streamTrimRatio: streamTrimRatio,
+    pcApplyEngine: pcApplyEngine
   };
 });
