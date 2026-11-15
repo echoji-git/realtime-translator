@@ -1,4 +1,4 @@
-﻿# v1.033 PC 매니저 설치. 관리자 권한은 필요 없습니다.
+﻿# v1.043 PC 매니저 설치. 예약 작업을 가장 높은 권한으로 등록할 수 있으면 그 권한으로 등록합니다.
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 $ErrorActionPreference = "Stop"
 $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -23,7 +23,7 @@ if (Test-Path $LegacySrc) {
     Copy-Item (Join-Path $LegacySrc "*") $LegacyDest -Force
 }
 
-foreach ($name in @("manager.py", "start.ps1", "stop.ps1", "toggle.ps1", "install-task.ps1", "uninstall.ps1")) {
+foreach ($name in @("manager.py", "start.ps1", "stop.ps1", "toggle.ps1", "install-task.ps1", "uninstall.ps1", "port-range.ps1")) {
     Copy-Item (Join-Path $Here $name) (Join-Path $Root $name) -Force
 }
 
@@ -51,7 +51,7 @@ if (-not (Test-Path $KeyFile)) {
     } catch {
     }
     $note = @"
-실시간 번역 PC 비밀 키 (v1.033)
+실시간 번역 PC 비밀 키 (v1.043)
 
 이 키는 설치할 때 한 번만 보여 줍니다. 번역 페이지 설정의 비밀 키 칸에 붙여 넣으세요.
 페이지: https://echoji-git.github.io/realtime-translator/translator.html

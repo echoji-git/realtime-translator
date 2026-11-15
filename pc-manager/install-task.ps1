@@ -12,9 +12,21 @@ $exe = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
 $action = New-ScheduledTaskAction -Execute $exe -Argument '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\rtb-pc-api\start.ps1"' -WorkingDirectory "C:\rtb-pc-api"
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $trigger.Delay = "PT20S"
-$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
-Register-ScheduledTask -TaskName "RtbPcApi" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
+$registered = $false
+try {
+    Register-ScheduledTask -TaskName "RtbPcApi" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+    $registered = $true
+    Write-Output "TASK_HIGHEST"
+} catch {
+    Write-Output ("TASK_HIGHEST_SKIP " + $_.Exception.Message)
+}
+if (-not $registered) {
+    $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+    Register-ScheduledTask -TaskName "RtbPcApi" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+    Write-Output "TASK_LIMITED"
+}
 Write-Output "TASK_OK"
 Write-Output (Test-Path (Join-Path $desktop "번역PC 켜기끄기.lnk"))
 Get-ScheduledTask -TaskName "RtbPcApi" | Select-Object TaskName, State | Format-List

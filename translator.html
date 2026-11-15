@@ -408,8 +408,9 @@
           <button id="modeTalk" class="bar-btn" type="button">대화모드</button>
         </div>
         <p id="modeHint" class="hint">Test모드는 음성 파일로 확인합니다.</p>
-        <p id="devVersion" class="hint">개발Version 정보 : v1.042 (261115)</p>
+        <p id="devVersion" class="hint">개발Version 정보 : v1.043 (261115)</p>
         <ul id="devHistory" class="hint dev-history">
+          <li>v1.043(261115) : Whisper를 고르면 설치 필요 빨간 줄을 숨기고, PC 켜기 때 막힌 포트를 풀어 준다</li>
           <li>v1.042(261115) : 크롬 전사에 줄 길이 설정을 넣고, 다시 듣기를 줄여 안내음을 덜 낸다</li>
           <li>v1.041(261115) : 전사 제공자 드롭다운에 크롬 전사를 넣고, 전사 옵션의 빠른 자막 버튼을 옮긴다</li>
           <li>v1.01(261114) : 전사로 들어가는 소리를 키우고 선명하게 처리</li>
@@ -1044,6 +1045,7 @@
       asrNoteEl.className = "hint";
     }
     if (id === "pcTrSize" || id === "pcSize" || id === "pcEngine") paintPcModelHint();
+    if (id === "pcEngine") paintSenseVoice(null);
     if (id === "pcBase" || id === "pcTrBase") {
       resolvePcAddresses();
       paintPcAddressNote(id === "pcTrBase" ? "tr" : "asr");
@@ -2402,16 +2404,21 @@
     if (hint) hint.textContent = "번역에 보내는 모델: " + settings.pcModel;
   }
 
+  var lastPcStatus = null;
+
   function paintSenseVoice(data) {
+    if (data) lastPcStatus = data;
+    else data = lastPcStatus;
     var installed = !!(data && data.sensevoice && data.sensevoice.installed);
     var known = !!(data && data.sensevoice);
     var sel = document.getElementById("pcEngine");
     var opt = sel ? sel.querySelector('option[value="sensevoice"]') : null;
     if (opt) opt.textContent = known && !installed ? "SenseVoice (설치 필요)" : "SenseVoice";
     var note = document.getElementById("pcSenseNote");
+    var show = known && !installed && settings.pcEngine === "sensevoice";
     if (note) {
-      note.hidden = !known || installed;
-      note.textContent = known && !installed ? "설치 필요" : "";
+      note.hidden = !show;
+      note.textContent = show ? "설치 필요" : "";
     }
   }
 

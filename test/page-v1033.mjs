@@ -122,7 +122,11 @@ if (!customHidden) throw new Error("custom row should start hidden");
 await page.select("#pcBasePreset", "__custom__");
 await page.$eval("#pcBase", (node) => { node.value = "https://pc.example.ts.net"; node.dispatchEvent(new Event("input", { bubbles: true })); });
 await page.$eval("#pcKey", (node) => { node.value = "secret-key"; node.dispatchEvent(new Event("input", { bubbles: true })); });
-await page.waitForFunction(() => document.getElementById("pcSenseNote").textContent === "설치 필요" && !document.getElementById("pcSenseNote").hidden);
+await page.waitForFunction(() => {
+  const note = document.getElementById("pcSenseNote");
+  const opt = document.getElementById("pcEngine").querySelector('option[value="sensevoice"]');
+  return note.hidden && opt && opt.textContent.indexOf("설치 필요") !== -1 && document.getElementById("pcEngine").value === "whisper";
+});
 const shown = await page.evaluate(() => ({
   hidden: document.getElementById("pcPanel").hidden,
   labels: ["pcBase", "pcKey", "pcEngine", "pcSize", "pcTrSize", "pcApplyBtn"].map((id) => !!document.getElementById(id)),
