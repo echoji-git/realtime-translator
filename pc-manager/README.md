@@ -1,4 +1,4 @@
-# 실시간 번역 PC 매니저 v1.033
+# 실시간 번역 PC 매니저 v1.043
 
 이 PC의 받아쓰기와 번역을 번역 페이지에서 고르게 합니다. 인터넷에 열린 주소는 비밀 키가 있어야만 쓸 수 있습니다.
 
@@ -38,7 +38,9 @@ https://echoji-git.github.io/realtime-translator/translator.html
 - 전사 크기: base, small, turbo
 - 번역 모델: Ollama 1B는 `gemma3:1b`, 2B는 `gemma2:2b`, 4B는 `gemma3:4b`
 
-SenseVoice가 없으면 `설치 필요` 만 보여 주고, 켜져 있던 Whisper는 그대로 둡니다.
+SenseVoice가 없으면 페이지에서 SenseVoice를 골랐을 때만 `설치 필요` 를 보여 줍니다. Whisper를 고르면 그 빨간 줄은 나오지 않습니다. 켜져 있던 Whisper는 그대로 둡니다.
+
+재부팅 뒤 Windows가 11434(Ollama), 8091(받아쓰기), 8092(관리 프로그램) 중 하나를 동적 제외 범위로 잡으면 켜기가 실패합니다. 켜기 전에 그 범위를 검사하고, 막혀 있으면 winnat를 다시 시작한 뒤 다시 검사합니다. 로그인 때 예약 작업이 가장 높은 권한으로 등록되어 있으면 확인 창 없이 처리합니다. 바로 가기로 켤 때 권한이 없으면 확인 창을 한 번만 띄웁니다. 거부하면 어떤 포트가 어떤 범위에 막혔는지와 `net stop winnat` 후 `net start winnat` 방법을 보여 줍니다. 결과는 `C:\rtb-pc-api\logs\port-exclude.log` 에 남습니다.
 
 turbo는 `ggml-large-v3-turbo.bin` 이 있으면 whisper-server로 켭니다. 그 파일이 없고 기존 faster-whisper 캐시가 있으면 `faster_whisper_server.py` 를 켭니다. 둘 다 없으면 설치 필요로 알려 줍니다.
 

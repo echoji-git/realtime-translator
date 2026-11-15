@@ -1,4 +1,4 @@
-﻿# v1.033 을 옛 door.py 방식으로 되돌립니다.
+﻿# v1.043 을 옛 door.py 방식으로 되돌립니다.
 #   powershell -NoProfile -ExecutionPolicy Bypass -File C:\rtb-pc-api\uninstall.ps1
 $ErrorActionPreference = "Continue"
 $Root = "C:\rtb-pc-api"

@@ -1,4 +1,4 @@
-﻿﻿param([switch]$Quiet)
+﻿param([switch]$Quiet)
 $ErrorActionPreference = "Stop"
 $Root = "C:\rtb-pc-api"
 $Flag = Join-Path $Root "enabled.flag"
@@ -11,6 +11,9 @@ $KeyFile = Join-Path $Root "manager-key.txt"
 $TrModel = "gemma3:1b"
 $PcEngine = "whisper"
 $PcSize = "base"
+$PortRangeFile = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "port-range.ps1"
+if (-not (Test-Path $PortRangeFile)) { throw "port-range.ps1 이 없습니다." }
+. $PortRangeFile
 
 function Read-PcState {
     $path = Join-Path $Root "manager-state.json"
@@ -338,8 +341,133 @@ function Start-Manager {
     if (-not (Wait-Listen 8091 90)) { throw "받아쓰기 서버가 127.0.0.1:8091 에서 응답하지 않습니다. 로그: $LogDir\stt.err.log" }
 }
 
+function Write-PortLog([string]$text) {
+    if (-not (Test-Path $LogDir)) {
+        New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+    }
+    $stamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Add-Content -Path (Join-Path $LogDir "port-exclude.log") -Value ($stamp + " " + $text) -Encoding UTF8
+}
+
+function Test-IsAdmin {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Get-ExcludedRangesFromNetsh {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $text = & netsh.exe interface ipv4 show excludedportrange protocol=tcp 2>&1 | Out-String
+    } finally {
+        $ErrorActionPreference = $prev
+    }
+    return @{ Text = [string]$text; Ranges = @(ConvertFrom-ExcludedPortText -Text ([string]$text)) }
+}
+
+function Format-PortBlockMessage {
+    param(
+        [object[]]$Hits,
+        [string]$Why
+    )
+    $roles = @{
+        11434 = "Ollama"
+        8091 = "받아쓰기"
+        8092 = "관리 프로그램"
+    }
+    $lines = @()
+    foreach ($hit in $Hits) {
+        if ($null -eq $hit) { continue }
+        $role = $roles[[int]$hit.Port]
+        if (-not $role) { $role = "서비스" }
+        $lines += ("{0} 포트({1})가 Windows 제외 범위 {2}-{3} 에 들어 있습니다." -f $hit.Port, $role, $hit.Start, $hit.End)
+    }
+    $lead = ""
+    if ($Why -eq "denied") {
+        $lead = "권한 상승을 거부해서 제외 범위를 풀지 못했습니다.`r`n`r`n"
+    } elseif ($Why -eq "failed") {
+        $lead = "winnat를 다시 시작하지 못했습니다.`r`n`r`n"
+    } elseif ($Why -eq "still") {
+        $lead = "winnat를 다시 시작했는데도 제외 범위가 남아 있습니다.`r`n`r`n"
+    }
+    return $lead + ($lines -join "`r`n") + @"
+
+Windows가 재부팅 뒤 이 포트를 동적 제외 범위로 잡아 프로그램을 열 수 없습니다.
+관리자 권한 PowerShell에서 다음을 실행한 뒤 다시 켜세요.
+net stop winnat
+net start winnat
+"@
+}
+
+function Restart-WinnatService {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & net.exe stop winnat | Out-Null
+        & net.exe start winnat | Out-Null
+        return ($LASTEXITCODE -eq 0)
+    } finally {
+        $ErrorActionPreference = $prev
+    }
+}
+
+function Request-WinnatRestart {
+    if (Test-IsAdmin) {
+        Write-PortLog "관리자 권한으로 winnat를 다시 시작합니다."
+        if (Restart-WinnatService) {
+            Write-PortLog "winnat 재시작을 마쳤습니다."
+            return "admin"
+        }
+        Write-PortLog "winnat 재시작이 실패했습니다."
+        return "failed"
+    }
+    Write-PortLog "관리자 권한이 없어 권한 상승으로 winnat 재시작을 한 번 요청합니다."
+    $shell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+    $command = "& net.exe stop winnat; & net.exe start winnat; exit `$LASTEXITCODE"
+    try {
+        $proc = Start-Process -FilePath $shell -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $command) -Verb RunAs -Wait -PassThru -WindowStyle Hidden
+    } catch {
+        Write-PortLog ("권한 상승이 거부되었거나 시작하지 못했습니다: " + $_.Exception.Message)
+        return "denied"
+    }
+    if (-not $proc) {
+        Write-PortLog "권한 상승 프로세스가 없습니다."
+        return "denied"
+    }
+    Write-PortLog ("권한 상승 종료 코드 " + $proc.ExitCode)
+    if ($proc.ExitCode -ne 0) { return "failed" }
+    return "elevated"
+}
+
+function Ensure-ListenPorts {
+    $ports = @(11434, 8091, 8092)
+    $snap = Get-ExcludedRangesFromNetsh
+    Write-PortLog ("제외 범위 검사`r`n" + $snap.Text)
+    $hits = @(Get-BlockedPorts -Ports $ports -Ranges $snap.Ranges | Where-Object { $_ })
+    if ($hits.Count -eq 0) {
+        Write-PortLog "11434, 8091, 8092 는 제외 범위에 없습니다."
+        return
+    }
+    $listed = ($hits | ForEach-Object { "{0} {1}-{2}" -f $_.Port, $_.Start, $_.End }) -join ", "
+    Write-PortLog ("막힌 포트: " + $listed)
+    $how = Request-WinnatRestart
+    if ($how -eq "denied" -or $how -eq "failed") {
+        throw (Format-PortBlockMessage -Hits $hits -Why $how)
+    }
+    Start-Sleep -Seconds 1
+    $again = Get-ExcludedRangesFromNetsh
+    Write-PortLog ("재검사`r`n" + $again.Text)
+    $left = @(Get-BlockedPorts -Ports $ports -Ranges $again.Ranges | Where-Object { $_ })
+    if ($left.Count -gt 0) {
+        throw (Format-PortBlockMessage -Hits $left -Why "still")
+    }
+    Write-PortLog "winnat 재시작 후 11434, 8091, 8092 가 제외 범위에서 빠졌습니다."
+}
+
 try {
     Read-PcState
+    Ensure-ListenPorts
     if (-not (Test-Path $KeyFile)) { throw "비밀 키 파일이 없습니다. install.ps1 을 먼저 실행하세요." }
     Ensure-Tailscale
     $ready = (Test-ManagerUp) -and (Test-FunnelUp)
