@@ -184,6 +184,35 @@ again = core.emptyHeardNotice(again, blank.noticeAt + core.EMPTY_HEARD_GAP);
 assert.strictEqual(again.tell, false);
 assert.strictEqual(again.streak, 1);
 
+assert.strictEqual(core.fixSentenceSpace("불기능이 됩니다.불기대죠"), "불기능이 됩니다. 불기대죠");
+const longKo = "오늘 회의에서는 작은 소리도 놓치지 않도록 줄을 나누고 번역을 확정한 다음 이어 적습니다. 그리고 다음 문장으로 넘어갑니다.";
+const splitKo = core.splitTranscriptLine(longKo, 45);
+assert.ok(splitKo && splitKo.head.length <= 45 && splitKo.head.length >= 18, splitKo && splitKo.head);
+assert.ok(splitKo.rest.length > 0);
+const pieces = core.piecesForTranslate(longKo, 40);
+assert.ok(pieces.length >= 2);
+pieces.forEach((part) => assert.ok(part.length <= 40, part));
+
+const leak = "실례합니다, 용어집: (없음) 출처: let’s go to the next slide 답변: 죄송합니다, let’s go to the next slide";
+assert.strictEqual(core.cleanTranslation(leak, "let’s go to the next slide"), "");
+assert.strictEqual(core.cleanTranslation("Okay, I understand. Please provide the text you would like me to translate.", "그런데"), "");
+assert.strictEqual(core.pcTranslateMessages({ targetName: "한국어", glossary: "", srcText: "hello" })[0].content.indexOf("용어집"), -1);
+assert.strictEqual(core.pcTranslateMessages({ targetName: "한국어", glossary: "", srcText: "hello" })[1].content, "hello");
+assert.ok(core.pcTranslateMessages({ targetName: "한국어", glossary: "웨이퍼=wafer", srcText: "hello" })[0].content.indexOf("웨이퍼=wafer") > 0);
+
+assert.strictEqual(core.cleanTranscript("oeddwn i'n gwybod", {}), "");
+assert.strictEqual(core.cleanTranscript("Mae'r gweithio", {}), "");
+assert.strictEqual(core.cleanTranscript("yn oedig yn oedig yn oedig", {}), "");
+assert.strictEqual(core.cleanTranscript("[BLANK_AUDIO] hello [INAUDIBLE]", {}), "hello");
+assert.strictEqual(core.cleanTranscript("(upbeat music)", {}), "");
+assert.strictEqual(core.cleanTranscript("(rock music) (laughter) (engine revving)", {}), "");
+assert.strictEqual(core.cleanTranscript("[Music]", {}), "");
+assert.strictEqual(core.cleanTranscript("Thank you for watching", { lowEnergy: true }), "");
+assert.strictEqual(core.cleanTranscript("구독과 좋아요 부탁드립니다", { lowEnergy: true }), "");
+assert.strictEqual(core.cleanTranscript("수고하셨습니다", { lowEnergy: true }), "");
+assert.strictEqual(core.cleanTranscript("Thank you for watching", { lowEnergy: false }), "Thank you for watching");
+assert.strictEqual(core.cleanTranscript("hello there", {}), "hello there");
+
 console.log("rtb-core tests ok");
 console.log("low-rms-ratio", ratioLow.toFixed(3), "high-rms-ratio", ratioHigh.toFixed(3));
 console.log("low-peak", core.pcmPeak(quieted).toFixed(3), "high-peak", core.pcmPeak(boosted).toFixed(3));

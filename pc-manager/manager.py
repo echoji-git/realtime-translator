@@ -239,6 +239,8 @@ class Host:
             "--port", "8091",
             "-m", str(model),
             "-l", "auto",
+            "--temperature", "0",
+            "--no-speech-thold", "0.6",
             "--no-flash-attn",
         ]
 

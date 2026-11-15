@@ -79,6 +79,164 @@
     return kept.join("\n").replace(/^\s+|\s+$/g, "");
   }
 
+  function fixSentenceSpace(text) {
+    return String(text || "").replace(/([.?!…])(?=[가-힣A-Za-z])/g, "$1 ");
+  }
+
+  function splitTranscriptLine(text, maxChars) {
+    var t = fixSentenceSpace(String(text || "").replace(/\s+/g, " ").trim());
+    var max = Math.round(Number(maxChars) || 45);
+    if (max < 8) max = 8;
+    if (t.length <= max) return null;
+    var windowText = t.slice(0, max);
+    var floor = Math.floor(max * 0.4);
+    var best = -1;
+    var i;
+    for (i = windowText.length - 1; i >= floor; i--) {
+      if (".?!…".indexOf(windowText.charAt(i)) >= 0) {
+        best = i + 1;
+        break;
+      }
+    }
+    if (best < 0) {
+      for (i = windowText.length - 1; i >= floor; i--) {
+        var ch = windowText.charAt(i);
+        if (ch === "," || ch === "，") {
+          best = i + 1;
+          break;
+        }
+      }
+    }
+    if (best < 0) {
+      var space = windowText.lastIndexOf(" ");
+      if (space >= floor) best = space;
+    }
+    if (best < 0) best = max;
+    var head = t.slice(0, best).trim();
+    var rest = t.slice(best).trim();
+    if (!head) return null;
+    return { head: head, rest: rest };
+  }
+
+  function piecesForTranslate(text, maxChars) {
+    var parts = [];
+    var rest = fixSentenceSpace(String(text || "").replace(/\s+/g, " ").trim());
+    var guard = 0;
+    while (rest && guard < 12) {
+      guard += 1;
+      var split = splitTranscriptLine(rest, maxChars);
+      if (!split || !split.rest) {
+        parts.push(rest);
+        break;
+      }
+      parts.push(split.head);
+      rest = split.rest;
+    }
+    return parts;
+  }
+
+  function normUtterance(text) {
+    return String(text || "").replace(/\s+/g, "").toLowerCase();
+  }
+
+  function sameUtterance(a, b) {
+    var left = normUtterance(a);
+    var right = normUtterance(b);
+    return !!left && left === right;
+  }
+
+  function repeatsSource(out, source) {
+    var src = normUtterance(source);
+    var text = normUtterance(out);
+    if (!src || src.length < 8) return sameUtterance(out, source);
+    return text.indexOf(src) >= 0;
+  }
+
+  function cleanTranslation(text, source) {
+    var t = cleanModelOutput(text);
+    var phrases = [
+      "용어집: (없음)",
+      "용어집:(없음)",
+      "Reply with the translation only.",
+      "Reply with the translation only",
+      "Do not repeat the source.",
+      "Okay, I understand. Please provide the text you would like me to translate.",
+      "Okay, I understand. Please provide the text",
+      "Please provide the text you would like me to translate",
+      "Please provide the text"
+    ];
+    var i;
+    for (i = 0; i < phrases.length; i++) {
+      if (t.indexOf(phrases[i]) >= 0) t = t.split(phrases[i]).join(" ");
+    }
+    t = t.replace(/(?:^|[\s,])(?:용어집|출처|답변|출력|Source|Reply)\s*:\s*/gi, " ");
+    t = t.replace(/\s+/g, " ").trim();
+    t = t.replace(/^(실례합니다|죄송합니다)[, ]*/g, "").trim();
+    if (!t) return "";
+    if (source && repeatsSource(t, source)) return "";
+    return t;
+  }
+
+  function pcTranslateMessages(spec) {
+    spec = spec || {};
+    var gloss = glossaryBlock(spec.glossary);
+    var system = "Translate into " + (spec.targetName || "") + " only. Reply with the translation only. Do not repeat the source. Do not add Source, Reply, glossary, or labels.";
+    if (gloss) system += "\n" + gloss;
+    return [
+      { role: "system", content: system },
+      { role: "user", content: String(spec.srcText || "") }
+    ];
+  }
+
+  function isLoopHallucination(text) {
+    var parts = String(text || "").toLowerCase().split(/\s+/).filter(function (part) { return part; });
+    if (parts.length < 6) return false;
+    var counts = {};
+    var i;
+    var max = 0;
+    for (i = 0; i < parts.length; i++) {
+      counts[parts[i]] = (counts[parts[i]] || 0) + 1;
+      if (counts[parts[i]] > max) max = counts[parts[i]];
+    }
+    return max >= 3 && max / parts.length >= 0.4;
+  }
+
+  function looksWelsh(text) {
+    var t = String(text || "").toLowerCase();
+    if (/\b(oeddwn|gwybod|gweithio|oedig)\b/.test(t)) return true;
+    if (/\b(mae'r|i'n|o'r)\b/.test(t)) return true;
+    return false;
+  }
+
+  function isStockHallucination(text) {
+    var t = String(text || "").replace(/\s+/g, " ").trim().toLowerCase();
+    if (!t) return false;
+    var phrases = [
+      "구독과 좋아요 부탁드립니다",
+      "구독 좋아요 부탁드립니다",
+      "수고하셨습니다",
+      "thank you for watching",
+      "thanks for watching"
+    ];
+    var i;
+    for (i = 0; i < phrases.length; i++) {
+      if (t === phrases[i] || t.indexOf(phrases[i]) === 0 && t.length < phrases[i].length + 8) return true;
+    }
+    return false;
+  }
+
+  function cleanTranscript(text, spec) {
+    spec = spec || {};
+    var t = String(text || "");
+    t = t.replace(/\[(?:BLANK_AUDIO|INAUDIBLE|Music|MUSIC|music)\]/g, " ");
+    t = t.replace(/\((?:upbeat music|rock music|laughter|engine revving|music|applause)\)/gi, " ");
+    t = fixSentenceSpace(t.replace(/\s+/g, " ").trim());
+    if (!t) return "";
+    if (isLoopHallucination(t) || looksWelsh(t)) return "";
+    if (spec.lowEnergy && isStockHallucination(t)) return "";
+    return t;
+  }
+
   function geminiTranslatePrompt(spec) {
     spec = spec || {};
     return joinBlocks([
@@ -310,6 +468,16 @@
     recentSourceBlock: recentSourceBlock,
     joinBlocks: joinBlocks,
     cleanModelOutput: cleanModelOutput,
+    fixSentenceSpace: fixSentenceSpace,
+    splitTranscriptLine: splitTranscriptLine,
+    piecesForTranslate: piecesForTranslate,
+    sameUtterance: sameUtterance,
+    repeatsSource: repeatsSource,
+    cleanTranslation: cleanTranslation,
+    pcTranslateMessages: pcTranslateMessages,
+    cleanTranscript: cleanTranscript,
+    isLoopHallucination: isLoopHallucination,
+    looksWelsh: looksWelsh,
     geminiTranslatePrompt: geminiTranslatePrompt,
     pcTranslatePrompt: pcTranslatePrompt,
     pcModelTag: pcModelTag,
