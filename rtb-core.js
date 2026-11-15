@@ -397,7 +397,7 @@
   }
 
   var EMPTY_HEARD_LIMIT = 5;
-  var EMPTY_HEARD_GAP = 20000;
+  var EMPTY_HEARD_GAP = 60000;
 
   function chunkWorthSending(preLevel, postLevel, gate) {
     var line = gate == null ? 8 : gate;
