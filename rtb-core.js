@@ -617,6 +617,77 @@
     return engine === "whisper-stream" ? "whisper" : String(engine || "whisper");
   }
 
+  // 언어1과 언어2가 다르면 양쪽을 듣고, 같으면 그 언어만 지정한다.
+  function sttLanguage(lang1, lang2) {
+    var a = String(lang1 || "").trim();
+    var b = String(lang2 || "").trim();
+    if (a && a === b) return a;
+    return "auto";
+  }
+
+  function scriptKind(text) {
+    var stats = { hangul: 0, latin: 0, han: 0, kana: 0, cyr: 0, thai: 0 };
+    var s = String(text || "");
+    var i;
+    for (i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i);
+      if (c >= 0xac00 && c <= 0xd7a3) stats.hangul++;
+      else if ((c >= 65 && c <= 90) || (c >= 97 && c <= 122)) stats.latin++;
+      else if (c >= 0x4e00 && c <= 0x9fff) stats.han++;
+      else if (c >= 0x3040 && c <= 0x30ff) stats.kana++;
+      else if (c >= 0x0400 && c <= 0x04ff) stats.cyr++;
+      else if (c >= 0x0e00 && c <= 0x0e7f) stats.thai++;
+    }
+    var best = "";
+    var n = 0;
+    var tie = false;
+    var name;
+    for (name in stats) {
+      if (!Object.prototype.hasOwnProperty.call(stats, name)) continue;
+      if (stats[name] > n) {
+        best = name;
+        n = stats[name];
+        tie = false;
+      } else if (stats[name] === n && n > 0) {
+        tie = true;
+      }
+    }
+    if (!n || tie) return "";
+    return best;
+  }
+
+  function langScript(lang) {
+    if (lang === "ko") return "hangul";
+    if (lang === "ja") return "kana";
+    if (lang === "zh") return "han";
+    if (lang === "ru") return "cyr";
+    if (lang === "th") return "thai";
+    return "latin";
+  }
+
+  function pickHeardLang(text, serverLang, lang1, lang2) {
+    var a = String(lang1 || "").trim();
+    var b = String(lang2 || "").trim();
+    if (a && a === b) return a;
+    var kind = scriptKind(text);
+    var aOk = !!(kind && langScript(a) === kind);
+    var bOk = !!(kind && langScript(b) === kind);
+    if (aOk && !bOk) return a;
+    if (bOk && !aOk) return b;
+    var server = String(serverLang || "").trim().toLowerCase();
+    if (server === a || server === b) return server;
+    return "";
+  }
+
+  function asrListenPrompt(lang1, lang2) {
+    var a = String(lang1 || "").trim();
+    var b = String(lang2 || "").trim();
+    if (a && a === b) {
+      return "말한 언어는 " + a + " 이다. 들린 말을 그 언어의 글자로만 받아 적어라. 다른 언어로 옮기지 마라. 응답은 JSON {\"lang\":\"" + a + "\",\"text\":\"...\"} 만.";
+    }
+    return "말한 언어는 " + a + " 또는 " + b + " 이다. 들린 말을 그 언어의 글자로만 받아 적어라. 다른 언어로 옮기지 마라. 어느 쪽인지는 소리로 정하라. 둘 다 아니면 text는 빈 문자열로 하라. 응답은 JSON {\"lang\":\"" + a + " 또는 " + b + "\",\"text\":\"...\"} 만.";
+  }
+
   return {
     EMPTY_RECENT: EMPTY_RECENT,
     PC_MODELS: PC_MODELS,
@@ -665,6 +736,9 @@
     streamCommit: streamCommit,
     streamTrimSeconds: streamTrimSeconds,
     streamTrimRatio: streamTrimRatio,
-    pcApplyEngine: pcApplyEngine
+    pcApplyEngine: pcApplyEngine,
+    sttLanguage: sttLanguage,
+    pickHeardLang: pickHeardLang,
+    asrListenPrompt: asrListenPrompt
   };
 });
