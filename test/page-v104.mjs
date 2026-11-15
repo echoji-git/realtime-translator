@@ -182,7 +182,7 @@ await page.evaluate(() => {
 await page.reload({ waitUntil: "load" });
 
 const version = await page.$eval("#devVersion", (node) => node.textContent);
-if (version.indexOf("v1.045 (261115)") === -1) throw new Error(version);
+if (version.indexOf("v1.046 (261115)") === -1) throw new Error(version);
 const history = await page.$eval("#devHistory", (node) => node.textContent);
 if (history.indexOf("v1.04(261115)") === -1) throw new Error(history);
 if (history.indexOf("v1.041(261115)") === -1) throw new Error(history);
@@ -190,6 +190,7 @@ if (history.indexOf("v1.042(261115)") === -1) throw new Error(history);
 if (history.indexOf("v1.043(261115)") === -1) throw new Error(history);
 if (history.indexOf("v1.044(261115)") === -1) throw new Error(history);
 if (history.indexOf("v1.045(261115)") === -1) throw new Error(history);
+if (history.indexOf("v1.046(261115)") === -1) throw new Error(history);
 const noFastButton = await page.$("#cutFast");
 if (noFastButton) throw new Error("cutFast still present");
 const googleHint = await page.$eval("#fastGoogleHint", (node) => node.textContent);

@@ -69,10 +69,11 @@ await page.evaluate(() => {
 await page.reload({ waitUntil: "load" });
 
 const version = await page.$eval("#devVersion", (node) => node.textContent);
-if (version.indexOf("v1.045 (261115)") === -1) throw new Error(version);
+if (version.indexOf("v1.046 (261115)") === -1) throw new Error(version);
 const historyTop = await page.$eval("#devHistory li", (node) => node.textContent);
-if (historyTop.indexOf("v1.045(261115)") !== 0) throw new Error(historyTop);
+if (historyTop.indexOf("v1.046(261115)") !== 0) throw new Error(historyTop);
 const history = await page.$eval("#devHistory", (node) => node.textContent);
+if (history.indexOf("v1.045(261115)") === -1) throw new Error("missing v1.045 history");
 if (history.indexOf("v1.044(261115)") === -1) throw new Error("missing v1.044 history");
 
 await page.evaluate(() => document.getElementById("menuBtn").click());

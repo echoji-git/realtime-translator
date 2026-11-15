@@ -51,9 +51,9 @@ await page.evaluate(() => localStorage.clear());
 await page.reload({ waitUntil: "load" });
 
 const version = await page.$eval("#devVersion", (node) => node.textContent);
-if (version.indexOf("v1.045 (261115)") === -1) throw new Error(version);
+if (version.indexOf("v1.046 (261115)") === -1) throw new Error(version);
 const historyTop = await page.$eval("#devHistory li", (node) => node.textContent);
-if (historyTop.indexOf("v1.045(261115)") !== 0) throw new Error(historyTop);
+if (historyTop.indexOf("v1.046(261115)") !== 0) throw new Error(historyTop);
 if ((await page.$eval("#devHistory", (node) => node.textContent)).indexOf("v1.043(261115)") === -1) {
   throw new Error("old history removed");
 }
