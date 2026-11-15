@@ -238,6 +238,34 @@
     return heardLevel(out) >= micGate(spec);
   }
 
+  var EMPTY_HEARD_LIMIT = 5;
+  var EMPTY_HEARD_GAP = 20000;
+
+  function chunkWorthSending(preLevel, postLevel, gate) {
+    var line = gate == null ? 8 : gate;
+    return preLevel >= 8 || postLevel >= line;
+  }
+
+  function emptyHeardNotice(state, now) {
+    state = state || {};
+    var streak = state.streak || 0;
+    var noticeAt = state.noticeAt || 0;
+    now = now || 0;
+    if (noticeAt && now - noticeAt < EMPTY_HEARD_GAP) {
+      return { streak: streak, noticeAt: noticeAt, tell: false };
+    }
+    streak += 1;
+    if (streak < EMPTY_HEARD_LIMIT) {
+      return { streak: streak, noticeAt: noticeAt && now - noticeAt >= EMPTY_HEARD_GAP ? 0 : noticeAt, tell: false };
+    }
+    return { streak: 0, noticeAt: now, tell: true };
+  }
+
+  function clearEmptyHeard(state) {
+    state = state || {};
+    return { streak: 0, noticeAt: state.noticeAt || 0 };
+  }
+
   // 크롬 전사 번역 묶음.
   // 새 말이 4단어(띄어쓰기 없으면 12자)이거나 문장이 끝나면 보내고,
   // 그보다 짧으면 450ms 쉼 뒤에 보낸다.
@@ -293,6 +321,11 @@
     micGate: micGate,
     heardLevel: heardLevel,
     keepsSpeech: keepsSpeech,
+    chunkWorthSending: chunkWorthSending,
+    emptyHeardNotice: emptyHeardNotice,
+    clearEmptyHeard: clearEmptyHeard,
+    EMPTY_HEARD_LIMIT: EMPTY_HEARD_LIMIT,
+    EMPTY_HEARD_GAP: EMPTY_HEARD_GAP,
     MIC_HIGH_MAX: MIC_HIGH_MAX,
     MIC_LOW_GAIN: MIC_LOW_GAIN,
     fastUnitCount: fastUnitCount,
