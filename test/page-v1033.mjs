@@ -94,7 +94,7 @@ const defaults = await page.evaluate(() => ({
   asr: document.getElementById("asrRoute").value,
   tr: document.getElementById("trRoute").value,
   pcHidden: document.getElementById("pcPanel").hidden,
-  mic: document.getElementById("micLevel").value,
+  mic: document.getElementById("micMid").classList.contains("active") ? "mid" : document.getElementById("micHigh").textContent,
   engine: document.getElementById("pcEngine").value,
   size: document.getElementById("pcSize").value,
   trSize: document.getElementById("pcTrSize").value,
@@ -197,12 +197,12 @@ await page.select("#trRoute", "gemini");
 
 await page.evaluate(() => document.querySelector('#sidebar .fold[data-fold="segment"] .fold-btn').click());
 await page.waitForFunction(() => !document.getElementById("fold-segment").hidden);
-await page.select("#micLevel", "high");
+await page.evaluate(() => document.getElementById("micHigh").click());
 await page.evaluate(() => document.getElementById("saveSettingsBtn").click());
 await (await page.$("#fold-segment")).screenshot({ path: outDir + "/settings-mic-v1033.png" });
 await page.reload({ waitUntil: "load" });
-const micSaved = await page.$eval("#micLevel", (node) => node.value);
-if (micSaved !== "high") throw new Error("mic not saved " + micSaved);
+const micSaved = await page.evaluate(() => JSON.parse(localStorage.getItem("rtb.settings.v1")));
+if (micSaved.micSide !== "high" || micSaved.micStep !== 1) throw new Error("mic not saved " + JSON.stringify(micSaved));
 
 const cleaned = await page.evaluate(() => {
   const core = window.RtbClean;

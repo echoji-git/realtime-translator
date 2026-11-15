@@ -142,6 +142,28 @@ assert.strictEqual(core.fastDelta("안녕 하세요", "안녕"), "하세요");
 assert.strictEqual(core.fastEndsSentence("문장."), true);
 assert.strictEqual(core.fastEndsSentence("문장"), false);
 
+function tone(rms, n) {
+  return sine(rms * Math.SQRT2, n);
+}
+assert.deepStrictEqual(core.MIC_HIGH_MAX, [4, 8, 12, 16, 20]);
+assert.deepStrictEqual(core.MIC_LOW_GAIN, [0.7, 0.5, 0.35, 0.25, 0.18]);
+const quietSpeech = tone(0.002, 1600);
+const mildSpeech = tone(0.01, 1600);
+for (let step = 1; step <= 5; step++) {
+  const spec = { side: "high", step: step };
+  const out = core.applyMicLevel(quietSpeech, spec);
+  assert.ok(core.pcmRms(out) > core.pcmRms(quietSpeech), "크게 x" + step + " 가 커지지 않음");
+  assert.ok(core.pcmPeak(out) <= 1, "크게 x" + step + " 꼭지");
+}
+assert.ok(core.keepsSpeech(mildSpeech, { side: "high", step: 1 }), "0.01 은 크게 x1 에서 남음");
+assert.ok(core.keepsSpeech(quietSpeech, { side: "high", step: 2 }), "0.002 는 크게 x2 에서 남음");
+assert.ok(core.keepsSpeech(quietSpeech, { side: "high", step: 5 }), "0.002 는 크게 x5 에서 남음");
+const low2 = core.applyMicLevel(tone(0.2, 800), { side: "low", step: 2 });
+const lowRatio = core.pcmRms(low2) / core.pcmRms(tone(0.2, 800));
+assert.ok(Math.abs(lowRatio - 0.5) < 0.03, "작게 x2 비 " + lowRatio);
+assert.strictEqual(core.micGate({ side: "mid", step: 0 }), 8);
+assert.strictEqual(core.micGate({ side: "high", step: 2 }), 6);
+
 console.log("rtb-core tests ok");
 console.log("low-rms-ratio", ratioLow.toFixed(3), "high-rms-ratio", ratioHigh.toFixed(3));
 console.log("low-peak", core.pcmPeak(quieted).toFixed(3), "high-peak", core.pcmPeak(boosted).toFixed(3));
