@@ -175,9 +175,10 @@ for (let i = 0; i < 4; i++) {
 blank = core.emptyHeardNotice(blank, 1000);
 assert.deepStrictEqual(told, [false, false, false, false]);
 assert.strictEqual(blank.tell, true);
+assert.strictEqual(core.EMPTY_HEARD_GAP, 60000);
 const during = core.emptyHeardNotice(blank, 1000 + 1000);
 assert.strictEqual(during.tell, false);
-const quietGap = core.emptyHeardNotice(core.clearEmptyHeard(blank), blank.noticeAt + 5000);
+const quietGap = core.emptyHeardNotice(core.clearEmptyHeard(blank), blank.noticeAt + 59000);
 assert.strictEqual(quietGap.tell, false);
 let again = { streak: 0, noticeAt: blank.noticeAt };
 again = core.emptyHeardNotice(again, blank.noticeAt + core.EMPTY_HEARD_GAP);

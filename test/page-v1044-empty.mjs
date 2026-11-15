@@ -45,13 +45,16 @@ const result = await page.evaluate(() => {
   window.RtbLive.noteBlank(true, t0 + 1000);
   const repeat = toast.textContent;
   const gap = window.RtbClean.EMPTY_HEARD_GAP;
+  const stillHeld = window.RtbClean.emptyHeardNotice({ streak: 0, noticeAt: t0 }, t0 + 59000);
   for (let i = 0; i < 5; i++) window.RtbLive.noteBlank(true, t0 + gap + i);
-  return { old, quiet, boosted, loud, before, quietIgnored, shown, repeat, afterGap: toast.textContent };
+  return { old, quiet, boosted, loud, before, quietIgnored, shown, repeat, gap, stillHeld: stillHeld.tell, afterGap: toast.textContent };
 });
 if (result.old !== -1) throw new Error("old toast remains");
 if (result.quiet !== false || result.boosted !== true || result.loud !== true) throw new Error(JSON.stringify(result));
 if (result.before === "block" || result.quietIgnored === "block") throw new Error("early toast " + JSON.stringify(result));
 if (result.shown.display !== "block" || result.shown.text.indexOf("크게를 눌러") === -1) throw new Error(result.shown.text);
+if (result.gap !== 60000) throw new Error("gap " + result.gap);
+if (result.stillHeld !== false) throw new Error("59s should stay quiet");
 if (result.repeat !== result.shown.text) throw new Error("repeat changed toast");
 if (result.afterGap.indexOf("크게를 눌러") === -1) throw new Error(result.afterGap);
 const realErrors = errors.filter((line) => line.indexOf("favicon") === -1);
