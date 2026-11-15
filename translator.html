@@ -410,7 +410,7 @@
         <p id="modeHint" class="hint">Test모드는 음성 파일로 확인합니다.</p>
         <p id="devVersion" class="hint">개발Version 정보 : v1.044 (261115)</p>
         <ul id="devHistory" class="hint dev-history">
-          <li>v1.044(261115) : 전사 옵션 기본을 기존으로 두고, 마이크 크기를 작게와 크게 단계로 키운다. 빈 받아쓰기는 연속일 때만 한 번 알린다</li>
+          <li>v1.044(261115) : 전사 옵션 기본을 기존으로 두고, 마이크 크기를 단계로 키운다. 긴 줄은 나누고, 빈 받아쓰기와 환각, 지시문은 걸러 낸다</li>
           <li>v1.043(261115) : Whisper를 고르면 설치 필요 빨간 줄을 숨기고, PC 켜기 때 막힌 포트를 풀어 준다</li>
           <li>v1.042(261115) : 크롬 전사에 줄 길이 설정을 넣고, 다시 듣기를 줄여 안내음을 덜 낸다</li>
           <li>v1.041(261115) : 전사 제공자 드롭다운에 크롬 전사를 넣고, 전사 옵션의 빠른 자막 버튼을 옮긴다</li>
@@ -542,6 +542,7 @@
   var apiNote = "";
   var keyCheckSeq = 0;
   var asrNote = "SenseVoice 대기";
+  var lastHeardLang = "";
   var asrReady = false;
   var asrPromise = null;
   var asrProc = null;
@@ -1804,8 +1805,8 @@
     return window.RtbClean.recentSourceBlock(recentLines(skipId));
   }
 
-  function cleanShown(text) {
-    return window.RtbClean.cleanModelOutput(text);
+  function cleanShown(text, source) {
+    return window.RtbClean.cleanTranslation(text, source);
   }
 
   function escapeReg(text) {
@@ -2262,14 +2263,15 @@
     return window.RtbClean.pcHeaders(key, extra);
   }
 
-  async function pcChat(origin, model, prompt, signal) {
+  async function pcChat(origin, model, messages, signal) {
+    var payload = Array.isArray(messages) ? messages : [{ role: "user", content: String(messages || "") }];
     var res = await fetch(origin + "/api/chat", {
       method: "POST",
       headers: pcTrAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         model: model,
         stream: false,
-        messages: [{ role: "user", content: prompt }]
+        messages: payload
       }),
       signal: signal || undefined
     });
@@ -2308,25 +2310,37 @@
     var other = item.srcLang === settings.lang1 ? settings.lang2 : settings.lang1;
     item.tgtLang = other;
     var targetName = langName(other);
-    var first = window.RtbClean.pcTranslatePrompt({
-      targetName: targetName,
-      glossary: glossarySource(),
-      srcText: item.srcText
-    });
-    var second = "Translate into " + targetName + " only. Use that language's normal writing. Do not repeat the source and do not use another language.\n" + item.srcText;
+    var pieces = window.RtbClean.piecesForTranslate(item.srcText, Math.min(40, chromeLinePlan().chars));
     try {
-      var firstReply = await pcChat(origin, model, first, job.signal);
-      if (jobStale(item, job)) return;
-      var text = pcTranslationText(firstReply.content);
-      if (!firstReply.ok || !pcTranslationOk(text, other)) {
-        var secondReply = await pcChat(origin, model, second, job.signal);
+      var outs = [];
+      var pi;
+      for (pi = 0; pi < pieces.length; pi++) {
         if (jobStale(item, job)) return;
-        text = pcTranslationText(secondReply.content);
+        var piece = pieces[pi];
+        var first = window.RtbClean.pcTranslateMessages({
+          targetName: targetName,
+          glossary: glossarySource(),
+          srcText: piece
+        });
+        var second = [
+          { role: "system", content: "Translate into " + targetName + " only. Reply with the translation only." },
+          { role: "user", content: piece }
+        ];
+        var firstReply = await pcChat(origin, model, first, job.signal);
+        if (jobStale(item, job)) return;
+        var text = window.RtbClean.cleanTranslation(firstReply.content, piece);
+        if (!firstReply.ok || !pcTranslationOk(text, other) || window.RtbClean.repeatsSource(text, piece)) {
+          var secondReply = await pcChat(origin, model, second, job.signal);
+          if (jobStale(item, job)) return;
+          text = window.RtbClean.cleanTranslation(secondReply.content, piece);
+        }
+        if (pcTranslationOk(text, other) && !window.RtbClean.repeatsSource(text, piece)) outs.push(text);
+        else if (window.RtbClean.sameUtterance(text, piece) && textMatchesLang(piece, other)) outs.push(piece);
       }
       if (jobStale(item, job)) return;
-      if (pcTranslationOk(text, other)) {
+      if (outs.length) {
         item.tgtLang = other;
-        item.tgtText = text;
+        item.tgtText = outs.join(" ");
         item.status = "done";
       } else {
         item.tgtText = "번역 실패";
@@ -2364,50 +2378,47 @@
     }
     var other = item.srcLang === settings.lang1 ? settings.lang2 : settings.lang1;
     item.tgtLang = other;
-    var prompt = window.RtbClean.geminiTranslatePrompt({
-      srcLang: item.srcLang,
-      targetLang: other,
-      glossary: glossarySource(),
-      recentLines: recentLines(item.id),
-      srcText: item.srcText
-    });
+    var pieces = window.RtbClean.piecesForTranslate(item.srcText, Math.max(40, chromeLinePlan().chars));
     try {
-      var res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0 }
-        }),
-        signal: job.signal || undefined
-      });
-      if (jobStale(item, job)) return;
-      var data = null;
-      try { data = await res.json(); } catch (e) { data = null; }
-      if (jobStale(item, job)) return;
-      if (!res.ok) {
-        item.tgtText = "번역 실패";
-        item.status = "error";
-      } else {
+      var outs = [];
+      var pi;
+      for (pi = 0; pi < pieces.length; pi++) {
+        if (jobStale(item, job)) return;
+        var prompt = window.RtbClean.geminiTranslatePrompt({
+          srcLang: item.srcLang,
+          targetLang: other,
+          glossary: glossarySource(),
+          recentLines: recentLines(item.id),
+          srcText: pieces[pi]
+        });
+        var res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0 }
+          }),
+          signal: job.signal || undefined
+        });
+        if (jobStale(item, job)) return;
+        var data = null;
+        try { data = await res.json(); } catch (e) { data = null; }
+        if (!res.ok) continue;
         var out = "";
         try {
           out = data.candidates[0].content.parts.map(function (part) { return part.text || ""; }).join("");
         } catch (e2) { out = ""; }
         var parsed = parseTranslation(out);
-        if (parsed && parsed.translation) {
-          var shown = cleanShown(String(parsed.translation));
-          if (!shown) {
-            item.tgtText = "번역 실패";
-            item.status = "error";
-          } else {
-            item.tgtLang = other;
-            item.tgtText = shown;
-            item.status = "done";
-          }
-        } else {
-          item.tgtText = "번역 실패";
-          item.status = "error";
-        }
+        var shown = cleanShown(parsed && parsed.translation ? String(parsed.translation) : "", pieces[pi]);
+        if (shown && !window.RtbClean.repeatsSource(shown, pieces[pi])) outs.push(shown);
+      }
+      if (outs.length) {
+        item.tgtLang = other;
+        item.tgtText = outs.join(" ");
+        item.status = "done";
+      } else {
+        item.tgtText = "번역 실패";
+        item.status = "error";
       }
     } catch (e3) {
       if (jobStale(item, job) || (e3 && e3.name === "AbortError")) return;
@@ -2735,10 +2746,11 @@
       liveItem.tgtLang = liveItem.srcLang === settings.lang1 ? settings.lang2 : settings.lang1;
       records.push(liveItem);
       interim = "";
+      settleLiveLength();
       saveRecords();
       follow = true;
       render();
-      scheduleTranslate(liveItem);
+      if (liveItem && liveItem.growing) scheduleTranslate(liveItem);
       return;
     }
     if (lang && liveItem.srcLang && lang !== liveItem.srcLang) {
@@ -2751,15 +2763,51 @@
     var merged = cutMode() === "overlap"
       ? stitchHeard(liveItem.srcText, text, liveItem.lastDur || 0)
       : joinHeard(liveItem.srcText, text);
+    merged = window.RtbClean.fixSentenceSpace(merged);
     if (merged === liveItem.srcText) return;
     liveItem.srcText = merged;
     liveItem.lastDur = dur;
     liveItem.hold = cutMode() === "overlap" ? holdCount(text, dur) : 0;
     liveItem.status = "translating";
+    settleLiveLength();
     saveRecords();
     follow = true;
     render();
-    scheduleTranslate(liveItem);
+    if (liveItem && liveItem.growing) scheduleTranslate(liveItem);
+  }
+
+  function settleLiveLength() {
+    if (!liveItem || chromeAsr()) return;
+    var guard = 0;
+    while (liveItem && guard < 6) {
+      guard += 1;
+      var fixed = window.RtbClean.fixSentenceSpace(liveItem.srcText);
+      var split = window.RtbClean.splitTranscriptLine(fixed, chromeLinePlan().chars);
+      if (!split || !split.rest) {
+        liveItem.srcText = fixed;
+        return;
+      }
+      liveItem.srcText = split.head;
+      liveItem.hold = 0;
+      liveItem.growing = false;
+      scheduleTranslate(liveItem);
+      var closed = liveItem;
+      liveItem = {
+        id: Date.now() + guard,
+        startMs: sessionMs(),
+        srcLang: closed.srcLang,
+        srcText: split.rest,
+        tgtLang: closed.tgtLang,
+        tgtText: "번역 중",
+        status: "translating",
+        engine: closed.engine,
+        session: closed.session,
+        growing: true,
+        lastDur: closed.lastDur || 0,
+        hold: cutMode() === "overlap" ? holdCount(split.rest, closed.lastDur || 0) : 0
+      };
+      records.push(liveItem);
+    }
   }
 
   function pushTranscript(text, lang, engine, keepInterim) {
@@ -2922,9 +2970,19 @@
 
   function paintChromeLine() {
     var node = document.getElementById("chromeLineVal");
-    if (!node) return;
     var plan = chromeLinePlan();
-    node.textContent = "쉬면 " + (plan.pause / 1000).toFixed(1) + "초 · 최대 " + plan.chars + "자";
+    var chrome = chromeAsr();
+    if (node) {
+      node.textContent = chrome
+        ? "쉬면 " + (plan.pause / 1000).toFixed(1) + "초 · 최대 " + plan.chars + "자"
+        : "최대 " + plan.chars + "자";
+    }
+    var hint = document.getElementById("chromeLineHint");
+    if (hint) {
+      hint.textContent = chrome
+        ? "말을 쉬면 이 시간 뒤에 줄을 끊습니다. 시간은 마지막 인식 결과 뒤로 새 단어가 없는 동안입니다. 최대 글자에 닿으면 띄어쓰기에서 끊고 남은 말은 다음 줄로 넘깁니다. 띄어쓰기가 없으면 최대 글자에서 끊습니다. 마침표나 물음표에서도 줄을 끊습니다. 줄을 끊어도 듣기는 이어 갑니다."
+        : "겹침, 분절, 기존에서 이 글자 수를 넘으면 문장 부호나 쉼표, 띄어쓰기에서 줄을 닫고 그 줄을 번역합니다. 겹침의 끝단어 교정은 유지됩니다.";
+    }
   }
 
   function pausePlan() {
@@ -2968,7 +3026,7 @@
     var cutNote = document.getElementById("chromeCutNote");
     if (cutNote) cutNote.hidden = !chrome;
     var lineBlock = document.getElementById("chromeLineBlock");
-    if (lineBlock) lineBlock.hidden = !chrome;
+    if (lineBlock) lineBlock.hidden = false;
     var lineInput = document.getElementById("chromeLine");
     if (lineInput && document.activeElement !== lineInput) lineInput.value = String(settings.chromeLine || 3);
     paintChromeLine();
@@ -3712,7 +3770,7 @@
     var post = pcmLevel(samples);
     var pre = windowRawLevel(start, end);
     if (!window.RtbClean.chunkWorthSending(pre, post, window.RtbClean.micGate(micSpec()))) return;
-    enqueueFinal(samples, "", null, winSession);
+    enqueueFinal(samples, "", null, winSession, { pre: pre, post: post });
   }
 
   function emitReadyWindows(flushTail) {
@@ -3900,11 +3958,18 @@
       render();
       return;
     }
-    enqueueFinal(copy, lang, stamp);
+    enqueueFinal(copy, lang, stamp, null, { pre: rawMax, post: pcmLevel(copy) });
   }
 
-  function enqueueFinal(samples, lang, stamp, session) {
-    segQueue.push({ samples: samples, lang: lang, stamp: stamp, session: session });
+  function enqueueFinal(samples, lang, stamp, session, levels) {
+    segQueue.push({
+      samples: samples,
+      lang: lang,
+      stamp: stamp,
+      session: session,
+      pre: levels && levels.pre,
+      post: levels && levels.post
+    });
     drainSegments();
   }
 
@@ -3918,7 +3983,7 @@
       var stamp = job && job.stamp;
       var session = job ? job.session : null;
       try {
-        await transcribeSegment(samples, lang, stamp, session);
+        await transcribeSegment(samples, lang, stamp, session, { pre: job && job.pre, post: job && job.post });
       } catch (e) {
         asrNote = "인식에 실패했습니다";
         refreshStatus();
@@ -4043,6 +4108,8 @@
     var body = new FormData();
     body.append("file", wavBlob(samples), "clip.wav");
     body.append("response_format", "json");
+    body.append("temperature", "0");
+    if (lastHeardLang) body.append("language", lastHeardLang);
     var res = null;
     try {
       res = await fetch(origin + "/inference", { method: "POST", headers: pcAuthHeaders(), body: body });
@@ -4066,15 +4133,10 @@
       if (!quiet) toast("PC 받아쓰기가 실패했습니다.");
       return { text: "", lang: "" };
     }
-    var text = cleanShown(data && data.text ? String(data.text) : "");
+    var text = String(data && data.text ? data.text : "").replace(/\s+/g, " ").trim();
     var heardLang = "";
     if (text && textMatchesLang(text, settings.lang1)) heardLang = settings.lang1;
     else if (text && textMatchesLang(text, settings.lang2)) heardLang = settings.lang2;
-    if (!text) {
-      if (!quiet) noteBlankTranscript(true);
-      return { text: text, lang: heardLang };
-    }
-    noteHeardTranscript();
     return { text: text, lang: heardLang };
   }
 
@@ -4133,11 +4195,6 @@
       else if (text && textMatchesLang(text, settings.lang2)) heardLang = settings.lang2;
       else heardLang = "";
     }
-    if (!text) {
-      if (!quiet) noteBlankTranscript(true);
-      return { text: text, lang: heardLang };
-    }
-    noteHeardTranscript();
     return { text: text, lang: heardLang };
   }
 
@@ -4234,20 +4291,31 @@
     return String(out && out.text || "").trim();
   }
 
-  async function transcribeSegment(samples, langHint, stamp, session) {
+  async function transcribeSegment(samples, langHint, stamp, session, levels) {
     if (settings.asrRoute === "none") return;
     var epoch = asrEpoch;
     if (settings.asrRoute === "gemini" || settings.asrRoute === "pc") {
       var heard = settings.asrRoute === "pc" ? await pcTranscribeText(samples) : await geminiTranscribeText(samples);
       if (epoch !== asrEpoch) return;
-      var geminiText = repeatedTake(correctSpelling(heard.text || ""));
+      var rawText = String(heard.text || "").trim();
+      var lowEnergy = !!(levels && levels.post != null && levels.post < 20);
+      var geminiText = window.RtbClean.cleanTranscript(repeatedTake(correctSpelling(rawText)), { lowEnergy: lowEnergy });
       if (stamp == null || stamp === partialGen) interim = "";
+      if (!rawText.trim()) {
+        noteBlankTranscript(true);
+        asrNote = "지정한 두 언어로 적지 못한 조각은 빼 두었습니다";
+        refreshStatus();
+        render();
+        return;
+      }
       if (!geminiText || !heard.lang || !textMatchesLang(geminiText, heard.lang)) {
         asrNote = "지정한 두 언어로 적지 못한 조각은 빼 두었습니다";
         refreshStatus();
         render();
         return;
       }
+      lastHeardLang = heard.lang;
+      noteHeardTranscript();
       if (session != null) continueTranscript(geminiText, heard.lang, settings.asrRoute === "pc" ? "pc-whisper" : "gemini", session, samples.length / 16000);
       else pushTranscript(geminiText, heard.lang, settings.asrRoute === "pc" ? "pc-whisper" : "gemini", stamp != null && stamp !== partialGen);
       return;
