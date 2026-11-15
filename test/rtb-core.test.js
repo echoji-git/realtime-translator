@@ -163,6 +163,26 @@ const lowRatio = core.pcmRms(low2) / core.pcmRms(tone(0.2, 800));
 assert.ok(Math.abs(lowRatio - 0.5) < 0.03, "작게 x2 비 " + lowRatio);
 assert.strictEqual(core.micGate({ side: "mid", step: 0 }), 8);
 assert.strictEqual(core.micGate({ side: "high", step: 2 }), 6);
+assert.strictEqual(core.chunkWorthSending(2, 2, 8), false);
+assert.strictEqual(core.chunkWorthSending(9, 2, 8), true);
+assert.strictEqual(core.chunkWorthSending(2, 6, 6), true);
+let blank = { streak: 0, noticeAt: 0 };
+const told = [];
+for (let i = 0; i < 4; i++) {
+  blank = core.emptyHeardNotice(blank, 1000);
+  told.push(blank.tell);
+}
+blank = core.emptyHeardNotice(blank, 1000);
+assert.deepStrictEqual(told, [false, false, false, false]);
+assert.strictEqual(blank.tell, true);
+const during = core.emptyHeardNotice(blank, 1000 + 1000);
+assert.strictEqual(during.tell, false);
+const quietGap = core.emptyHeardNotice(core.clearEmptyHeard(blank), blank.noticeAt + 5000);
+assert.strictEqual(quietGap.tell, false);
+let again = { streak: 0, noticeAt: blank.noticeAt };
+again = core.emptyHeardNotice(again, blank.noticeAt + core.EMPTY_HEARD_GAP);
+assert.strictEqual(again.tell, false);
+assert.strictEqual(again.streak, 1);
 
 console.log("rtb-core tests ok");
 console.log("low-rms-ratio", ratioLow.toFixed(3), "high-rms-ratio", ratioHigh.toFixed(3));

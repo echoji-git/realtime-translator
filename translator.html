@@ -410,7 +410,7 @@
         <p id="modeHint" class="hint">Test모드는 음성 파일로 확인합니다.</p>
         <p id="devVersion" class="hint">개발Version 정보 : v1.044 (261115)</p>
         <ul id="devHistory" class="hint dev-history">
-          <li>v1.044(261115) : 전사 옵션 기본을 기존으로 두고, 마이크 크기를 작게와 크게 단계로 키운다</li>
+          <li>v1.044(261115) : 전사 옵션 기본을 기존으로 두고, 마이크 크기를 작게와 크게 단계로 키운다. 빈 받아쓰기는 연속일 때만 한 번 알린다</li>
           <li>v1.043(261115) : Whisper를 고르면 설치 필요 빨간 줄을 숨기고, PC 켜기 때 막힌 포트를 풀어 준다</li>
           <li>v1.042(261115) : 크롬 전사에 줄 길이 설정을 넣고, 다시 듣기를 줄여 안내음을 덜 낸다</li>
           <li>v1.041(261115) : 전사 제공자 드롭다운에 크롬 전사를 넣고, 전사 옵션의 빠른 자막 버튼을 옮긴다</li>
@@ -558,6 +558,7 @@
   var segQueue = [];
   var segBusy = false;
   var uttParts = [];
+  var uttRawMax = 0;
   var uttCount = 0;
   var uttNew = 0;
   var uttLang = "";
@@ -2829,6 +2830,7 @@
   var extVoiced = false;
   var extBusy = false;
   var winParts = [];
+  var winMarks = [];
   var winBase = 0;
   var winCount = 0;
   var winNext = 0;
@@ -3642,6 +3644,7 @@
 
   function resetWindowClock() {
     winParts = [];
+    winMarks = [];
     winBase = 0;
     winCount = 0;
     winNext = 0;
@@ -3669,6 +3672,22 @@
       pos = keepFrom;
     }
     winBase = pos;
+    while (winMarks.length) {
+      var nextAt = winMarks.length > 1 ? winMarks[1].at : winCount;
+      if (nextAt > winBase) break;
+      winMarks.shift();
+    }
+  }
+
+  function windowRawLevel(start, end) {
+    var max = 0;
+    var i;
+    for (i = 0; i < winMarks.length; i++) {
+      var at = winMarks[i].at;
+      var nextAt = i + 1 < winMarks.length ? winMarks[i + 1].at : winCount;
+      if (nextAt > start && at < end && winMarks[i].level > max) max = winMarks[i].level;
+    }
+    return max;
   }
 
   function sliceWindow(start, end) {
@@ -3689,7 +3708,10 @@
   function queueWindow(start, end) {
     if (end - start < 1600) return;
     var samples = sliceWindow(start, end);
-    if (!samples.length || pcmLevel(samples) < window.RtbClean.micGate(micSpec())) return;
+    if (!samples.length) return;
+    var post = pcmLevel(samples);
+    var pre = windowRawLevel(start, end);
+    if (!window.RtbClean.chunkWorthSending(pre, post, window.RtbClean.micGate(micSpec()))) return;
     enqueueFinal(samples, "", null, winSession);
   }
 
@@ -3714,15 +3736,30 @@
 
   var lastBoostedLevel = 0;
   var lastBoostedAt = 0;
+  var lastChunkRaw = 0;
+  var blankHeard = { streak: 0, noticeAt: 0 };
 
   function levelPcm(pcm) {
     if (!pcm || !pcm.length || !window.RtbClean) return pcm;
+    lastChunkRaw = window.RtbClean.heardLevel(pcm);
     var out = window.RtbClean.applyMicLevel(pcm, micSpec());
     if (micStream) {
       lastBoostedLevel = window.RtbClean.heardLevel(out);
       lastBoostedAt = Date.now();
     }
     return out;
+  }
+
+  function noteBlankTranscript(audible, now) {
+    if (!audible) return;
+    var decision = window.RtbClean.emptyHeardNotice(blankHeard, now || Date.now());
+    blankHeard = decision;
+    if (!decision.tell) return;
+    toast("소리가 있어도 받아 적지 못했습니다. 입력이 작으면 크게를 눌러 보세요.");
+  }
+
+  function noteHeardTranscript() {
+    blankHeard = window.RtbClean.clearEmptyHeard(blankHeard);
   }
 
   function feedPause(samples, sampleRate) {
@@ -3762,6 +3799,7 @@
     var pcm = levelPcm(downsample(samples, sampleRate));
     if (!pcm || !pcm.length || dropUtt) return;
     if (micStream) uttMic = true;
+    winMarks.push({ at: winCount, level: lastChunkRaw });
     winParts.push(pcm);
     winCount += pcm.length;
     emitReadyWindows(false);
@@ -3811,6 +3849,7 @@
 
   function resetUttBuffers() {
     uttParts = [];
+    uttRawMax = 0;
     uttCount = 0;
     uttNew = 0;
     uttLang = "";
@@ -3829,6 +3868,7 @@
 
   function addUtt(pcm) {
     if (!pcm || !pcm.length || dropUtt) return;
+    if (lastChunkRaw > uttRawMax) uttRawMax = lastChunkRaw;
     if (micStream) uttMic = true;
     uttParts.push(pcm);
     uttCount += pcm.length;
@@ -3847,6 +3887,7 @@
     dropUtt = false;
     partialGen++;
     var stamp = partialGen;
+    var rawMax = uttRawMax;
     resetUttBuffers();
     if (drop) {
       interim = "";
@@ -3854,7 +3895,7 @@
       return;
     }
     if (!copy || copy.length < 3200) return;
-    if (fromMic && pcmLevel(copy) < window.RtbClean.micGate(micSpec())) {
+    if (fromMic && !window.RtbClean.chunkWorthSending(rawMax, pcmLevel(copy), window.RtbClean.micGate(micSpec()))) {
       interim = "";
       render();
       return;
@@ -4029,7 +4070,11 @@
     var heardLang = "";
     if (text && textMatchesLang(text, settings.lang1)) heardLang = settings.lang1;
     else if (text && textMatchesLang(text, settings.lang2)) heardLang = settings.lang2;
-    if (!text && !quiet) toast("PC가 받아 적지 못했습니다.");
+    if (!text) {
+      if (!quiet) noteBlankTranscript(true);
+      return { text: text, lang: heardLang };
+    }
+    noteHeardTranscript();
     return { text: text, lang: heardLang };
   }
 
@@ -4088,7 +4133,11 @@
       else if (text && textMatchesLang(text, settings.lang2)) heardLang = settings.lang2;
       else heardLang = "";
     }
-    if (!text && !quiet) toast("Gemini가 받아 적지 못했습니다.");
+    if (!text) {
+      if (!quiet) noteBlankTranscript(true);
+      return { text: text, lang: heardLang };
+    }
+    noteHeardTranscript();
     return { text: text, lang: heardLang };
   }
 
@@ -4920,6 +4969,13 @@
       toast("Gemma 가중치를 이 브라우저에 두지 못했습니다.");
     });
   });
+
+  window.RtbLive = {
+    noteBlank: noteBlankTranscript,
+    worthSending: function (pre, post) {
+      return window.RtbClean.chunkWorthSending(pre, post, window.RtbClean.micGate(micSpec()));
+    }
+  };
 
   bindSettings();
   applyTheme();
