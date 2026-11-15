@@ -29,6 +29,39 @@ class Box:
 
 BOX = Box()
 
+# 이 데스크탑 whisper-server.exe 도움말에 있는 것만. --temperature 는 없다.
+WHISPER_SERVER_FLAGS = {
+    "--host",
+    "--port",
+    "-m",
+    "--model",
+    "-l",
+    "--language",
+    "-nf",
+    "--no-fallback",
+    "-nth",
+    "--no-speech-thold",
+    "--no-flash-attn",
+}
+
+
+def assert_whisper_server_args(commands):
+    found = False
+    for cmd in commands:
+        if not isinstance(cmd, list) or not cmd:
+            continue
+        head = str(cmd[0]).replace("\\", "/").lower()
+        if not head.endswith("whisper-server.exe"):
+            continue
+        found = True
+        flags = [part for part in cmd if str(part).startswith("-")]
+        unknown = [flag for flag in flags if flag not in WHISPER_SERVER_FLAGS]
+        assert unknown == [], unknown
+        assert "--temperature" not in cmd
+        assert "--no-fallback" in cmd
+        assert "--no-speech-thold" in cmd
+    assert found, "whisper-server 실행 인자가 없습니다"
+
 
 class MockOllama(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -227,6 +260,7 @@ def main():
     assert "calc.exe" not in joined
     assert "System32" not in joined
     assert "ggml-base.bin" in joined
+    assert_whisper_server_args(host.commands)
 
     before = len(host.commands)
     status, _headers, raw = call(base, "POST", "/manager/apply", key=KEY, body={
