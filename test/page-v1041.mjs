@@ -78,8 +78,9 @@ await page.evaluate(() => localStorage.clear());
 await page.reload({ waitUntil: "load" });
 
 const version = await page.$eval("#devVersion", (node) => node.textContent);
-if (version.indexOf("v1.043 (261115)") === -1) throw new Error(version);
+if (version.indexOf("v1.044 (261115)") === -1) throw new Error(version);
 const history = await page.$eval("#devHistory", (node) => node.textContent);
+if (history.indexOf("v1.044(261115)") === -1) throw new Error("missing v1.044 history");
 if (history.indexOf("v1.043(261115)") === -1) throw new Error("missing v1.043 history");
 if (history.indexOf("v1.042(261115)") === -1) throw new Error("missing v1.042 history");
 if (history.indexOf("v1.041(261115)") === -1) throw new Error("missing v1.041 history");
@@ -87,7 +88,7 @@ if (history.indexOf("v1.01(261114)") === -1 || history.indexOf("v1.04(261115)") 
   throw new Error("old history removed");
 }
 const historyTop = await page.$eval("#devHistory li", (node) => node.textContent);
-if (historyTop.indexOf("v1.043(261115)") !== 0) throw new Error(historyTop);
+if (historyTop.indexOf("v1.044(261115)") !== 0) throw new Error(historyTop);
 if (await page.$("#cutFast")) throw new Error("빠른 자막 버튼이 남아 있음");
 
 await page.evaluate(() => document.getElementById("menuBtn").click());
@@ -140,7 +141,7 @@ const selected = await page.evaluate(() => ({
   asrHint: document.getElementById("asrHint").textContent,
   banner: document.getElementById("fastBanner").textContent,
   mic: document.getElementById("micLevelHint").textContent,
-  micDisabled: document.getElementById("micLevel").disabled,
+  micDisabled: document.getElementById("micHigh").disabled,
   cutHidden: document.getElementById("cutOptionBlock").hidden,
   cutNoteHidden: document.getElementById("chromeCutNote").hidden,
   cutNote: document.getElementById("chromeCutNote").textContent,

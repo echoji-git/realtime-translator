@@ -155,24 +155,87 @@
     return out;
   }
 
-  // 기본(mid)은 같은 배열을 그대로 돌려 현재 소리와 같다.
-  // 작게(low)는 큰 소리만 0.6배로 낮추고 제한한다.
-  // 크게(high)는 작은 소리를 목표 크기까지 키우되 배수는 1~3, 끝은 부드럽게 자른다.
-  function applyMicLevel(samples, mode) {
+  var MIC_HIGH_MAX = [4, 8, 12, 16, 20];
+  var MIC_HIGH_TARGET = [0.08, 0.12, 0.16, 0.22, 0.28];
+  var MIC_LOW_GAIN = [0.7, 0.5, 0.35, 0.25, 0.18];
+
+  function micPlan(spec) {
+    if (spec == null || spec === "" || spec === "mid" || spec === "기본") {
+      return { side: "mid", step: 0, legacy: false };
+    }
+    if (typeof spec === "string") {
+      if (spec === "low" || spec === "작게") return { side: "low", step: 1, legacy: true };
+      if (spec === "high" || spec === "크게") return { side: "high", step: 1, legacy: true };
+      return { side: "mid", step: 0, legacy: false };
+    }
+    var side = spec.side || spec.micSide || "mid";
+    if (side !== "low" && side !== "high" && side !== "mid") side = "mid";
+    var step = Math.round(Number(spec.step != null ? spec.step : spec.micStep) || 0);
+    if (side === "mid") return { side: "mid", step: 0, legacy: false };
+    if (step < 1) step = 1;
+    if (step > 5) step = 5;
+    return { side: side, step: step, legacy: false };
+  }
+
+  function heardLevel(samples) {
+    var sum = 0;
+    var peak = 0;
+    var i = 0;
+    if (!samples || !samples.length) return 0;
+    for (i = 0; i < samples.length; i++) {
+      var a = samples[i] < 0 ? -samples[i] : samples[i];
+      if (a > peak) peak = a;
+      sum += samples[i] * samples[i];
+    }
+    var rms = Math.sqrt(sum / samples.length);
+    return Math.min(100, Math.round(Math.max(rms * 4, peak) * 100));
+  }
+
+  // 기본은 같은 배열을 그대로 돌려 현재 소리와 같다.
+  // 예전 문자열 low/high 는 기존 배수(0.6, 최대 3)를 유지한다.
+  // 단계 크게 x1~x5 는 최대 배수 4, 8, 12, 16, 20 이다.
+  // 단계 작게 x1~x5 는 0.7, 0.5, 0.35, 0.25, 0.18 이다.
+  function applyMicLevel(samples, spec) {
     if (!samples || !samples.length) return samples;
-    if (mode !== "low" && mode !== "high") return samples;
+    var plan = micPlan(spec);
+    if (plan.side === "mid") return samples;
     var peak = pcmPeak(samples);
     var rms = pcmRms(samples);
-    if (mode === "low") {
+    if (plan.legacy && plan.side === "low") {
       if (peak < 0.45 && rms < 0.12) return samples;
       return mapSamples(samples, function (x) { return softLimit(x * 0.6); });
     }
-    if (rms < 0.0008) return samples;
-    var gain = 0.1 / rms;
+    if (plan.legacy && plan.side === "high") {
+      if (rms < 0.0008) return samples;
+      var oldGain = 0.1 / rms;
+      if (oldGain < 1) oldGain = 1;
+      if (oldGain > 3) oldGain = 3;
+      if (oldGain === 1 && peak <= 0.98) return samples;
+      return mapSamples(samples, function (x) { return softLimit(x * oldGain); });
+    }
+    if (plan.side === "low") {
+      var down = MIC_LOW_GAIN[plan.step - 1];
+      return mapSamples(samples, function (x) { return softLimit(x * down); });
+    }
+    if (rms < 0.00002) return samples;
+    var maxGain = MIC_HIGH_MAX[plan.step - 1];
+    var target = MIC_HIGH_TARGET[plan.step - 1];
+    var gain = target / rms;
     if (gain < 1) gain = 1;
-    if (gain > 3) gain = 3;
+    if (gain > maxGain) gain = maxGain;
     if (gain === 1 && peak <= 0.98) return samples;
     return mapSamples(samples, function (x) { return softLimit(x * gain); });
+  }
+
+  function micGate(spec) {
+    var plan = micPlan(spec);
+    if (plan.side === "high" && !plan.legacy) return Math.max(3, 8 - (plan.step - 1) * 2);
+    return 8;
+  }
+
+  function keepsSpeech(samples, spec) {
+    var out = applyMicLevel(samples, spec);
+    return heardLevel(out) >= micGate(spec);
   }
 
   // 크롬 전사 번역 묶음.
@@ -226,6 +289,12 @@
     pcmRms: pcmRms,
     pcmPeak: pcmPeak,
     applyMicLevel: applyMicLevel,
+    micPlan: micPlan,
+    micGate: micGate,
+    heardLevel: heardLevel,
+    keepsSpeech: keepsSpeech,
+    MIC_HIGH_MAX: MIC_HIGH_MAX,
+    MIC_LOW_GAIN: MIC_LOW_GAIN,
     fastUnitCount: fastUnitCount,
     fastDelta: fastDelta,
     fastEndsSentence: fastEndsSentence,

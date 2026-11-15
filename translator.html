@@ -306,13 +306,13 @@
         <span>3. 전사 옵션</span><span class="fold-mark" aria-hidden="true">▸</span>
       </button>
       <div id="fold-segment" class="fold-body" hidden>
-        <label for="micLevel">마이크 입력 크기</label>
-        <select id="micLevel">
-          <option value="low">작게</option>
-          <option value="mid" selected>기본</option>
-          <option value="high">크게</option>
-        </select>
-        <p id="micLevelHint" class="hint">기본은 지금과 같습니다. 작게는 큰 소리를 낮추고, 크게는 작은 소리를 키웁니다. 소리는 잘라서 깨지지 않게 합니다. Gemini와 PC API로 보내기 전에 적용됩니다. 저장을 누르면 이 브라우저에 남습니다.</p>
+        <label id="micLevelLabel">마이크 입력 크기</label>
+        <div class="mode-switch" role="group" aria-labelledby="micLevelLabel">
+          <button id="micLow" class="bar-btn" type="button">작게</button>
+          <button id="micMid" class="bar-btn" type="button">기본</button>
+          <button id="micHigh" class="bar-btn" type="button">크게</button>
+        </div>
+        <p id="micLevelHint" class="hint">기본은 추가 증폭 없이 지금과 같습니다. 작게를 누를 때마다 더 낮아지고, 크게를 누를 때마다 더 커집니다. 기본을 누르면 돌아옵니다. 키운 뒤에 무음인지 판단합니다. Gemini와 PC API에 적용되고, 저장을 누르면 이 브라우저에 남습니다.</p>
         <p id="chromeCutNote" class="hint" hidden>겹침, 분절, 기존은 크롬 전사에서는 적용되지 않음</p>
         <div id="chromeLineBlock" hidden>
           <label for="chromeLine">줄 길이 <span id="chromeLineVal">쉬면 1.0초 · 최대 45자</span></label>
@@ -408,8 +408,9 @@
           <button id="modeTalk" class="bar-btn" type="button">대화모드</button>
         </div>
         <p id="modeHint" class="hint">Test모드는 음성 파일로 확인합니다.</p>
-        <p id="devVersion" class="hint">개발Version 정보 : v1.043 (261115)</p>
+        <p id="devVersion" class="hint">개발Version 정보 : v1.044 (261115)</p>
         <ul id="devHistory" class="hint dev-history">
+          <li>v1.044(261115) : 전사 옵션 기본을 기존으로 두고, 마이크 크기를 작게와 크게 단계로 키운다</li>
           <li>v1.043(261115) : Whisper를 고르면 설치 필요 빨간 줄을 숨기고, PC 켜기 때 막힌 포트를 풀어 준다</li>
           <li>v1.042(261115) : 크롬 전사에 줄 길이 설정을 넣고, 다시 듣기를 줄여 안내음을 덜 낸다</li>
           <li>v1.041(261115) : 전사 제공자 드롭다운에 크롬 전사를 넣고, 전사 옵션의 빠른 자막 버튼을 옮긴다</li>
@@ -482,14 +483,14 @@
     lang1: "ko", lang2: "en", displayMode: "both",
     bgColor: "#0e1a2b", bgImage: "",
     srcSize: 20, tgtSize: 36, srcColor: "#d5dbe3", tgtColor: "#ffffff",
-    maxItems: 0, segment: 1, chromeLine: 3, cutMode: "overlap",
+    maxItems: 0, segment: 1, chromeLine: 3, cutMode: "pause",
     asrRoute: "gemini", localAsr: "sensevoice",
     asrKey: "", asrModel: "", asrModelIds: [],
     trRoute: "gemini", trKey: "", trModel: "", trModelIds: [],
     pcBase: PC_DEFAULT_BASE, pcKey: "", pcTrBase: PC_DEFAULT_BASE, pcTrKey: "",
     pcModel: "gemma3:1b",
     pcEngine: "whisper", pcSize: "base", pcTrSize: "1b",
-    micLevel: "mid",
+    micSide: "mid", micStep: 0,
     glossary: "",
     playbackRate: "1", mdFormat: "table", appMode: "test"
   };
@@ -636,7 +637,7 @@
       }
       if (!cleanBase(merged.pcBase)) merged.pcBase = defaults.pcBase;
       if (!cleanBase(merged.pcTrBase)) merged.pcTrBase = defaults.pcTrBase;
-      return migrateSettings(merged);
+      return migrateSettings(merged, parsed);
     } catch (e) {
       return Object.assign({}, defaults);
     }
@@ -652,7 +653,7 @@
     }
   }
 
-  function migrateSettings(s) {
+  function migrateSettings(s, parsed) {
     if (!s.asrRoute) {
       if (s.asrEngine === "gemini") s.asrRoute = "gemini";
       else if (s.asrEngine === "none") s.asrRoute = "none";
@@ -673,7 +674,30 @@
       else s.pcTrSize = "1b";
     }
     s.pcModel = window.RtbClean.pcModelTag(s.pcTrSize);
-    if (s.micLevel !== "low" && s.micLevel !== "mid" && s.micLevel !== "high") s.micLevel = "mid";
+    var micSource = parsed || s;
+    if (!Object.prototype.hasOwnProperty.call(micSource, "micSide")) {
+      if (micSource.micLevel === "low") {
+        s.micSide = "low";
+        s.micStep = 1;
+        persistMigrated = true;
+      } else if (micSource.micLevel === "high") {
+        s.micSide = "high";
+        s.micStep = 1;
+        persistMigrated = true;
+      } else {
+        s.micSide = "mid";
+        s.micStep = 0;
+      }
+    }
+    if (s.micSide !== "low" && s.micSide !== "high") {
+      s.micSide = "mid";
+      s.micStep = 0;
+    } else {
+      var micStep = Math.round(Number(s.micStep) || 1);
+      if (micStep < 1) micStep = 1;
+      if (micStep > 5) micStep = 5;
+      s.micStep = micStep;
+    }
     if (!s.trKey && s.geminiKey) s.trKey = s.geminiKey;
     if (!s.trModel && s.geminiModel) s.trModel = s.geminiModel;
     if (s.asrRoute === "gemini") {
@@ -772,7 +796,7 @@
     var chromeBlocked = rejectUnsupportedChrome();
     fillLangSelect(document.getElementById("lang1"), settings.lang1);
     fillLangSelect(document.getElementById("lang2"), settings.lang2);
-    var ids = ["displayMode", "asrRoute", "localAsr", "trRoute", "playbackRate", "mdFormat", "pcEngine", "pcSize", "pcTrSize", "micLevel"];
+    var ids = ["displayMode", "asrRoute", "localAsr", "trRoute", "playbackRate", "mdFormat", "pcEngine", "pcSize", "pcTrSize"];
     ids.forEach(function (id) {
       var node = document.getElementById(id);
       if (node && settings[id]) node.value = settings[id];
@@ -866,7 +890,7 @@
   function readAllSettings() {
     ["lang1", "lang2", "displayMode", "asrRoute", "localAsr", "trRoute", "playbackRate", "mdFormat",
       "bgColor", "srcSize", "tgtSize", "srcColor", "tgtColor", "maxItems", "segment", "chromeLine",
-      "trKey", "asrKey", "glossary", "pcKey", "pcTrKey", "pcEngine", "pcSize", "pcTrSize", "micLevel"].forEach(readForm);
+      "trKey", "asrKey", "glossary", "pcKey", "pcTrKey", "pcEngine", "pcSize", "pcTrSize"].forEach(readForm);
     settings.trKey = String(settings.trKey || "").trim();
     settings.asrKey = String(settings.asrKey || "").trim();
     settings.pcKey = String(settings.pcKey || "").trim();
@@ -1150,7 +1174,11 @@
       }
       var level = Math.max(Math.sqrt(sum / meterBuf.length) * 4, peak);
       lastLevel = Math.min(100, Math.round(level * 100));
-      el.meter.style.width = lastLevel + "%";
+      if (micStream && !chromeAsr() && Date.now() - lastBoostedAt < 500) {
+        el.meter.style.width = lastBoostedLevel + "%";
+      } else {
+        el.meter.style.width = lastLevel + "%";
+      }
       if (micStream) refreshStatus();
     } else if (!micStream && el.player.paused) {
       el.meter.style.width = "0%";
@@ -2944,13 +2972,12 @@
     paintChromeLine();
     var segment = document.getElementById("segment");
     if (segment) segment.disabled = chrome;
-    var mic = document.getElementById("micLevel");
-    if (mic) mic.disabled = chrome;
+    paintMicButtons();
     var micHint = document.getElementById("micLevelHint");
     if (micHint) {
       micHint.textContent = chrome
-        ? "크롬 전사에서는 마이크 입력 크기가 적용되지 않습니다. 브라우저가 마이크를 직접 엽니다."
-        : "기본은 지금과 같습니다. 작게는 큰 소리를 낮추고, 크게는 작은 소리를 키웁니다. 소리는 잘라서 깨지지 않게 합니다. Gemini와 PC API로 보내기 전에 적용됩니다. 저장을 누르면 이 브라우저에 남습니다.";
+        ? "크롬 전사는 브라우저가 마이크를 직접 잡아서 입력 크기가 적용되지 않습니다."
+        : "기본은 추가 증폭 없이 지금과 같습니다. 작게를 누를 때마다 더 낮아지고, 크게를 누를 때마다 더 커집니다. 기본을 누르면 돌아옵니다. 키운 뒤에 무음인지 판단합니다. Gemini와 PC API에 적용되고, 저장을 누르면 이 브라우저에 남습니다.";
     }
     var hint = document.getElementById("segmentHint");
     if (hint) {
@@ -2964,6 +2991,60 @@
     }
     paintSegmentLabel();
     paintFastBanner();
+  }
+
+  function micSpec() {
+    return { side: settings.micSide || "mid", step: settings.micStep || 0 };
+  }
+
+  function paintMicButtons() {
+    var side = settings.micSide === "low" || settings.micSide === "high" ? settings.micSide : "mid";
+    var step = side === "mid" ? 0 : Math.max(1, Math.min(5, Math.round(Number(settings.micStep) || 1)));
+    var chrome = chromeAsr();
+    var low = document.getElementById("micLow");
+    var mid = document.getElementById("micMid");
+    var high = document.getElementById("micHigh");
+    if (low) {
+      low.textContent = side === "low" ? "작게 x" + step : "작게";
+      low.classList.toggle("active", side === "low");
+      low.disabled = chrome;
+      low.setAttribute("aria-pressed", side === "low" ? "true" : "false");
+    }
+    if (mid) {
+      mid.textContent = "기본";
+      mid.classList.toggle("active", side === "mid");
+      mid.disabled = chrome;
+      mid.setAttribute("aria-pressed", side === "mid" ? "true" : "false");
+    }
+    if (high) {
+      high.textContent = side === "high" ? "크게 x" + step : "크게";
+      high.classList.toggle("active", side === "high");
+      high.disabled = chrome;
+      high.setAttribute("aria-pressed", side === "high" ? "true" : "false");
+    }
+  }
+
+  function setMicSide(side) {
+    if (chromeAsr()) return;
+    if (side === "mid") {
+      settings.micSide = "mid";
+      settings.micStep = 0;
+    } else if (side === "low" || side === "high") {
+      if (settings.micSide === side) {
+        var next = Math.round(Number(settings.micStep) || 1) + 1;
+        if (next > 5) {
+          settings.micStep = 5;
+          toast((side === "high" ? "크게" : "작게") + "는 x5까지입니다");
+        } else {
+          settings.micStep = next;
+        }
+      } else {
+        settings.micSide = side;
+        settings.micStep = 1;
+      }
+    }
+    paintMicButtons();
+    updateSaveState();
   }
 
   function setCutMode(mode) {
@@ -3608,7 +3689,7 @@
   function queueWindow(start, end) {
     if (end - start < 1600) return;
     var samples = sliceWindow(start, end);
-    if (!samples.length || pcmLevel(samples) < 8) return;
+    if (!samples.length || pcmLevel(samples) < window.RtbClean.micGate(micSpec())) return;
     enqueueFinal(samples, "", null, winSession);
   }
 
@@ -3631,16 +3712,24 @@
     }
   }
 
+  var lastBoostedLevel = 0;
+  var lastBoostedAt = 0;
+
   function levelPcm(pcm) {
     if (!pcm || !pcm.length || !window.RtbClean) return pcm;
-    return window.RtbClean.applyMicLevel(pcm, settings.micLevel || "mid");
+    var out = window.RtbClean.applyMicLevel(pcm, micSpec());
+    if (micStream) {
+      lastBoostedLevel = window.RtbClean.heardLevel(out);
+      lastBoostedAt = Date.now();
+    }
+    return out;
   }
 
   function feedPause(samples, sampleRate) {
     var pcm = levelPcm(downsample(samples, sampleRate));
     var voiced = pcmRms(pcm) > 0.02;
     if (micStream) {
-      voiced = pcmLevel(pcm) >= 8;
+      voiced = pcmLevel(pcm) >= window.RtbClean.micGate(micSpec());
       if (!extVoiced) {
         pushMicPre(pcm);
         if (voiced) micRun += pcm.length;
@@ -3765,7 +3854,7 @@
       return;
     }
     if (!copy || copy.length < 3200) return;
-    if (fromMic && pcmLevel(copy) < 8) {
+    if (fromMic && pcmLevel(copy) < window.RtbClean.micGate(micSpec())) {
       interim = "";
       render();
       return;
@@ -4663,6 +4752,9 @@
   });
   document.getElementById("modeTest").addEventListener("click", function () { setAppMode("test"); });
   document.getElementById("modeTalk").addEventListener("click", function () { setAppMode("talk"); });
+  document.getElementById("micLow").addEventListener("click", function () { setMicSide("low"); });
+  document.getElementById("micMid").addEventListener("click", function () { setMicSide("mid"); });
+  document.getElementById("micHigh").addEventListener("click", function () { setMicSide("high"); });
   document.getElementById("cutOverlap").addEventListener("click", function () { setCutMode("overlap"); });
   document.getElementById("cutCut").addEventListener("click", function () { setCutMode("cut"); });
   document.getElementById("cutPause").addEventListener("click", function () { setCutMode("pause"); });
