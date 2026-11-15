@@ -1,0 +1,4 @@
+# PowerShell 5.1은 BOM 없는 UTF-8을 시스템 코드페이지로 읽는다.
+# Git은 UTF-8-BOM 이라는 working-tree-encoding 이름을 지원하지 않으므로
+# 스크립트 바이트(맨 앞의 UTF-8 BOM 포함)를 줄바꿈 변환 없이 그대로 둔다.
+*.ps1 -text linguist-language=PowerShell

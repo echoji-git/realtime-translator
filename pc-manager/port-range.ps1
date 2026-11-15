@@ -1,4 +1,4 @@
-# Windows가 잡아 둔 TCP 제외 범위에 서비스 포트가 들어 있는지 판정한다.
+﻿# Windows가 잡아 둔 TCP 제외 범위에 서비스 포트가 들어 있는지 판정한다.
 # netsh 출력 문자열만 받으므로 시험할 때 네트워크나 관리자 권한이 필요 없다.
 
 function Test-PortInRange {

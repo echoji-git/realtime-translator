@@ -1,4 +1,4 @@
-# 제외 범위 판정만 확인한다. Pester와 Windows 관리자 권한은 쓰지 않는다.
+﻿# 제외 범위 판정만 확인한다. Pester와 Windows 관리자 권한은 쓰지 않는다.
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "port-range.ps1")
 
