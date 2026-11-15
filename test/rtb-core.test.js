@@ -214,6 +214,55 @@ assert.strictEqual(core.cleanTranscript("수고하셨습니다", { lowEnergy: tr
 assert.strictEqual(core.cleanTranscript("Thank you for watching", { lowEnergy: false }), "Thank you for watching");
 assert.strictEqual(core.cleanTranscript("hello there", {}), "hello there");
 
+const first = core.streamExtend("", "", "오늘 회의는");
+assert.strictEqual(first.confirmed, "");
+assert.strictEqual(first.tail, "오늘 회의는");
+const second = core.streamExtend(first.confirmed, first.prev, "오늘 회의는 길어");
+assert.strictEqual(second.confirmed, "오늘 회의는");
+assert.strictEqual(second.tail, "길어");
+const revised = core.streamExtend(second.confirmed, second.prev, "오늘 회의는 길었습니다.");
+assert.strictEqual(revised.confirmed, "오늘 회의는");
+assert.strictEqual(revised.tail, "길었습니다.");
+const settled = core.streamExtend(revised.confirmed, revised.prev, "오늘 회의는 길었습니다.");
+assert.strictEqual(settled.confirmed, "오늘 회의는 길었습니다.");
+assert.strictEqual(settled.tail, "");
+const sentence = core.streamCommit(settled.confirmed, settled.tail, { maxChars: 45 });
+assert.strictEqual(sentence.commit, "오늘 회의는 길었습니다.");
+assert.strictEqual(sentence.keepConfirmed, "");
+
+const held = core.streamCommit("안녕. 다음 말", "입니다", { maxChars: 45 });
+assert.strictEqual(held.commit, "안녕.");
+assert.strictEqual(held.keepConfirmed, "다음 말");
+assert.strictEqual(held.keepTail, "입니다");
+
+const paused = core.streamCommit("오늘 회의는", "길어", { pause: true, maxChars: 45 });
+assert.strictEqual(paused.commit, "오늘 회의는");
+assert.strictEqual(paused.keepTail, "길어");
+const forced = core.streamCommit("오늘 회의는", "길어", { pause: true, force: true, maxChars: 45 });
+assert.strictEqual(forced.commit, "오늘 회의는 길어");
+assert.strictEqual(forced.keepTail, "");
+
+const longConfirmed = "오늘 회의에서는 작은 소리도 놓치지 않도록 줄을 나누고 번역을 확정한 다음 이어 적습니다";
+const byLength = core.streamCommit(longConfirmed, "", { maxChars: 20 });
+assert.ok(byLength.commit && byLength.commit.length <= 20, byLength.commit);
+assert.ok(byLength.keepConfirmed.length > 0);
+
+const trim = core.streamTrimSeconds([
+  { start: 0, end: 1.2, text: "오늘 회의는" },
+  { start: 1.2, end: 2.6, text: "길었습니다." }
+], "오늘 회의는");
+assert.strictEqual(trim, 1.2);
+const trimAll = core.streamTrimSeconds([
+  { start: 0, end: 1.2, text: "오늘 회의는" },
+  { start: 1.2, end: 2.6, text: "길었습니다." }
+], "오늘 회의는 길었습니다.");
+assert.strictEqual(trimAll, 2.6);
+assert.ok(Math.abs(core.streamTrimRatio("오늘 회의는", "오늘 회의는 길어") - (6 / 9)) < 0.02);
+assert.strictEqual(core.pcApplyEngine("whisper-stream"), "whisper");
+assert.strictEqual(core.pcApplyEngine("sensevoice"), "sensevoice");
+assert.strictEqual(core.STREAM_EVERY_SAMPLES, 16000);
+assert.strictEqual(core.STREAM_MAX_SAMPLES, 16000 * 15);
+
 console.log("rtb-core tests ok");
 console.log("low-rms-ratio", ratioLow.toFixed(3), "high-rms-ratio", ratioHigh.toFixed(3));
 console.log("low-peak", core.pcmPeak(quieted).toFixed(3), "high-peak", core.pcmPeak(boosted).toFixed(3));

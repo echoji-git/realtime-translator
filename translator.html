@@ -39,6 +39,7 @@
     background: rgba(0, 0, 0, 0.28);
     border-bottom: 1px solid var(--line);
   }
+  #cutOptionBlock.is-dim { opacity: 0.45; }
   #menuBtn, #jumpBtn, .bar-btn {
     background: #1c2c42; border: 1px solid var(--line); color: #fff;
     border-radius: 8px; padding: 6px 10px;
@@ -204,8 +205,10 @@
           <label for="pcEngine">전사 엔진</label>
           <select id="pcEngine">
             <option value="whisper">Whisper</option>
+            <option value="whisper-stream">Whisper 스트리밍</option>
             <option value="sensevoice">SenseVoice</option>
           </select>
+          <p id="pcStreamNote" class="hint" hidden>Whisper 스트리밍은 같은 Whisper 서버로 약 1초마다 모아 둔 소리를 다시 보냅니다. 두 번 같은 앞부분만 확정합니다.</p>
           <p id="pcSenseNote" class="hint bad" hidden>설치 필요</p>
           <label for="pcSize">전사 크기</label>
           <select id="pcSize">
@@ -314,6 +317,7 @@
         </div>
         <p id="micLevelHint" class="hint">기본은 추가 증폭 없이 지금과 같습니다. 작게를 누를 때마다 더 낮아지고, 크게를 누를 때마다 더 커집니다. 기본을 누르면 돌아옵니다. 키운 뒤에 무음인지 판단합니다. Gemini와 PC API에 적용되고, 저장을 누르면 이 브라우저에 남습니다.</p>
         <p id="chromeCutNote" class="hint" hidden>겹침, 분절, 기존은 크롬 전사에서는 적용되지 않음</p>
+        <p id="streamCutNote" class="hint" hidden>스트리밍은 자동으로 끊어요</p>
         <div id="chromeLineBlock" hidden>
           <label for="chromeLine">줄 길이 <span id="chromeLineVal">쉬면 1.0초 · 최대 45자</span></label>
           <input id="chromeLine" type="range" min="1" max="5" step="1" value="3">
@@ -330,7 +334,7 @@
           <label for="segment">분절 길이 <span id="segmentVal"></span></label>
           <input id="segment" type="range" min="1" max="5" step="1">
           <p id="segmentHint" class="hint"></p>
-          <p class="hint">겹침, 분절, 기존은 PC API, Gemini 음성, 기기 내 Whisper에 적용됩니다. 크롬 전사는 브라우저 음성 인식을 쓰고, 기기 내 SenseVoice는 자기 구간을 그대로 씁니다.</p>
+          <p class="hint">겹침, 분절, 기존은 PC API의 Whisper, Gemini 음성, 기기 내 Whisper에 적용됩니다. Whisper 스트리밍과 크롬 전사는 이 옵션을 쓰지 않습니다. 기기 내 SenseVoice는 자기 구간을 그대로 씁니다.</p>
         </div>
       </div>
     </section>
@@ -408,8 +412,9 @@
           <button id="modeTalk" class="bar-btn" type="button">대화모드</button>
         </div>
         <p id="modeHint" class="hint">Test모드는 음성 파일로 확인합니다.</p>
-        <p id="devVersion" class="hint">개발Version 정보 : v1.044 (261115)</p>
+        <p id="devVersion" class="hint">개발Version 정보 : v1.045 (261115)</p>
         <ul id="devHistory" class="hint dev-history">
+          <li>v1.045(261115) : 전사 PC API에 Whisper 스트리밍을 넣는다. 맞는 앞부분만 확정하고, 겹침과 분절과 기존은 쓰지 않는다</li>
           <li>v1.044(261115) : 전사 옵션 기본을 기존으로 두고, 마이크 크기를 단계로 키운다. 긴 줄은 나누고, 빈 받아쓰기와 환각, 지시문은 걸러 낸다</li>
           <li>v1.043(261115) : Whisper를 고르면 설치 필요 빨간 줄을 숨기고, PC 켜기 때 막힌 포트를 풀어 준다</li>
           <li>v1.042(261115) : 크롬 전사에 줄 길이 설정을 넣고, 다시 듣기를 줄여 안내음을 덜 낸다</li>
@@ -668,7 +673,7 @@
     s.pcTrBase = cleanBase(s.pcTrBase);
     s.pcKey = String(s.pcKey || "").trim();
     s.pcTrKey = String(s.pcTrKey || "").trim();
-    if (s.pcEngine !== "whisper" && s.pcEngine !== "sensevoice") s.pcEngine = "whisper";
+    if (s.pcEngine !== "whisper" && s.pcEngine !== "whisper-stream" && s.pcEngine !== "sensevoice") s.pcEngine = "whisper";
     if (s.pcSize !== "base" && s.pcSize !== "small" && s.pcSize !== "turbo") s.pcSize = "base";
     if (s.pcTrSize !== "1b" && s.pcTrSize !== "2b" && s.pcTrSize !== "4b") {
       if (s.pcModel === "gemma3:4b") s.pcTrSize = "4b";
@@ -1071,7 +1076,14 @@
       asrNoteEl.className = "hint";
     }
     if (id === "pcTrSize" || id === "pcSize" || id === "pcEngine") paintPcModelHint();
-    if (id === "pcEngine") paintSenseVoice(null);
+    if (id === "pcEngine") {
+      paintSenseVoice(null);
+      if (streamConfirmed || streamTail || streamCount) flushStream();
+      else resetStream();
+      beginWindowSession();
+      paintCutMode();
+      updateAsrHint();
+    }
     if (id === "pcBase" || id === "pcTrBase") {
       resolvePcAddresses();
       paintPcAddressNote(id === "pcTrBase" ? "tr" : "asr");
@@ -1210,7 +1222,8 @@
     }
     var stream = micStream;
     var node = micNode;
-    var keepEnergy = segmentKind() === "energy" && (cutMode() === "pause" ? uttCount >= 3200 : pendingCoreSamples() >= 1600);
+    var keepStream = whisperStreamOn() && (streamCount >= 3200 || !!streamConfirmed || !!streamTail);
+    var keepEnergy = keepStream || (segmentKind() === "energy" && (cutMode() === "pause" ? uttCount >= 3200 : pendingCoreSamples() >= 1600));
     var keepSense = segmentKind() === "sense";
     micStream = null;
     micNode = null;
@@ -1237,6 +1250,7 @@
       extVoiced = false;
       extSilence = 0;
       resetUttBuffers();
+      resetStream();
       render();
     }
   }
@@ -1574,6 +1588,7 @@
     if (name === "whisper") return "Whisper";
     if (name === "gemini") return "Gemini 음성";
     if (name === "pc-whisper") return "PC Whisper";
+    if (name === "pc-whisper-stream") return "PC Whisper 스트리밍";
     if (name === "webspeech") return "크롬 전사";
     return "";
   }
@@ -2516,7 +2531,7 @@
         method: "POST",
         headers: headersFor({ "Content-Type": "application/json" }),
         body: JSON.stringify({
-          engine: settings.pcEngine,
+          engine: window.RtbClean.pcApplyEngine(settings.pcEngine),
           size: settings.pcSize,
           model: settings.pcModel
         })
@@ -2574,6 +2589,9 @@
     } else if (route === "chrome") {
       node.textContent = "크롬 전사로 적습니다. 말한 소리는 구글 서버로 갑니다. 인식 언어는 언어1(" + langName(settings.lang1) + ")입니다. 단어가 나오는 대로 원문을 고치고, 네 단어가 모이거나 0.45초 쉬면 그 문장을 번역합니다. 같은 문장은 번역을 고쳐 씁니다. 줄 길이만큼 쉬거나 글자가 차면 줄을 나눕니다. 마이크 입력 크기는 적용되지 않습니다.";
       if (!fastOn) asrNote = "크롬 전사";
+    } else if (route === "pc" && settings.pcEngine === "whisper-stream") {
+      node.textContent = "Whisper 스트리밍으로 적습니다. 약 1초마다 모아 둔 소리를 같은 PC의 Whisper에 다시 보내고, 두 번 같은 앞부분만 확정합니다. 겹침, 분절, 기존은 적용되지 않습니다. 확정된 문장만 번역합니다. 비밀 키를 같이 보냅니다.";
+      if (!streamBusy) asrNote = "PC API Whisper 스트리밍";
     } else if (route === "pc") {
       node.textContent = "이 PC의 받아쓰기로 적습니다. 말 조각은 아래 PC API 주소의 /inference 로 가고, 비밀 키를 같이 보냅니다. 이 브라우저는 모델 파일을 받지 않습니다.";
       if (!segBusy) asrNote = "PC API Whisper";
@@ -2972,16 +2990,19 @@
     var node = document.getElementById("chromeLineVal");
     var plan = chromeLinePlan();
     var chrome = chromeAsr();
+    var stream = whisperStreamOn();
     if (node) {
-      node.textContent = chrome
+      node.textContent = chrome || stream
         ? "쉬면 " + (plan.pause / 1000).toFixed(1) + "초 · 최대 " + plan.chars + "자"
         : "최대 " + plan.chars + "자";
     }
     var hint = document.getElementById("chromeLineHint");
     if (hint) {
-      hint.textContent = chrome
-        ? "말을 쉬면 이 시간 뒤에 줄을 끊습니다. 시간은 마지막 인식 결과 뒤로 새 단어가 없는 동안입니다. 최대 글자에 닿으면 띄어쓰기에서 끊고 남은 말은 다음 줄로 넘깁니다. 띄어쓰기가 없으면 최대 글자에서 끊습니다. 마침표나 물음표에서도 줄을 끊습니다. 줄을 끊어도 듣기는 이어 갑니다."
-        : "겹침, 분절, 기존에서 이 글자 수를 넘으면 문장 부호나 쉼표, 띄어쓰기에서 줄을 닫고 그 줄을 번역합니다. 겹침의 끝단어 교정은 유지됩니다.";
+      hint.textContent = stream
+        ? "스트리밍은 두 번 같은 앞부분을 확정합니다. 이 시간만큼 쉬거나 최대 글자에 닿으면 그 줄을 번역합니다."
+        : chrome
+          ? "말을 쉬면 이 시간 뒤에 줄을 끊습니다. 시간은 마지막 인식 결과 뒤로 새 단어가 없는 동안입니다. 최대 글자에 닿으면 띄어쓰기에서 끊고 남은 말은 다음 줄로 넘깁니다. 띄어쓰기가 없으면 최대 글자에서 끊습니다. 마침표나 물음표에서도 줄을 끊습니다. 줄을 끊어도 듣기는 이어 갑니다."
+          : "겹침, 분절, 기존에서 이 글자 수를 넘으면 문장 부호나 쉼표, 띄어쓰기에서 줄을 닫고 그 줄을 번역합니다. 겹침의 끝단어 교정은 유지됩니다.";
     }
   }
 
@@ -2997,7 +3018,7 @@
   function paintSegmentLabel() {
     var node = document.getElementById("segmentVal");
     if (!node) return;
-    if (chromeAsr()) {
+    if (chromeAsr() || whisperStreamOn()) {
       node.textContent = "사용 안 함";
       return;
     }
@@ -3012,26 +3033,35 @@
   function paintCutMode() {
     var mode = cutMode();
     var chrome = chromeAsr();
+    var stream = whisperStreamOn();
     var modes = [["cutOverlap", "overlap"], ["cutCut", "cut"], ["cutPause", "pause"]];
     modes.forEach(function (pair) {
       var btn = document.getElementById(pair[0]);
       if (!btn) return;
       var on = mode === pair[1];
       btn.classList.toggle("active", on);
-      btn.disabled = chrome;
+      btn.disabled = chrome || stream;
       btn.setAttribute("aria-pressed", on ? "true" : "false");
     });
     var block = document.getElementById("cutOptionBlock");
-    if (block) block.hidden = chrome;
+    if (block) {
+      block.hidden = chrome;
+      block.classList.toggle("is-dim", stream);
+    }
     var cutNote = document.getElementById("chromeCutNote");
     if (cutNote) cutNote.hidden = !chrome;
+    var streamNote = document.getElementById("streamCutNote");
+    if (streamNote) streamNote.hidden = !stream;
+    var pcStream = document.getElementById("pcStreamNote");
+    if (pcStream) pcStream.hidden = settings.pcEngine !== "whisper-stream";
     var lineBlock = document.getElementById("chromeLineBlock");
     if (lineBlock) lineBlock.hidden = false;
     var lineInput = document.getElementById("chromeLine");
     if (lineInput && document.activeElement !== lineInput) lineInput.value = String(settings.chromeLine || 3);
+    if (lineInput) lineInput.disabled = false;
     paintChromeLine();
     var segment = document.getElementById("segment");
-    if (segment) segment.disabled = chrome;
+    if (segment) segment.disabled = chrome || stream;
     paintMicButtons();
     var micHint = document.getElementById("micLevelHint");
     if (micHint) {
@@ -3043,7 +3073,9 @@
     if (hint) {
       hint.textContent = chrome
         ? "크롬 전사에서는 적용되지 않음"
-        : mode === "pause"
+        : stream
+          ? "스트리밍은 자동으로 끊어요"
+          : mode === "pause"
           ? "말이 쉬거나 최대 길이가 차면 그 구간을 한 번만 보냅니다. 1은 쉼 0.5초·최대 5초, 5는 쉼 1.3초·최대 13초입니다."
           : mode === "cut"
             ? "이 초마다 겹침 없이 자릅니다. 각 조각은 따로 받아쓰고, 앞 소리를 이어서 듣지 않습니다. 글만 같은 줄에 붙입니다."
@@ -3108,7 +3140,7 @@
   }
 
   function setCutMode(mode) {
-    if (chromeAsr()) return;
+    if (chromeAsr() || whisperStreamOn()) return;
     if (mode !== "overlap" && mode !== "cut" && mode !== "pause") return;
     settings.cutMode = mode;
     beginWindowSession();
@@ -3850,6 +3882,10 @@
   }
 
   function feedExternal(samples, sampleRate) {
+    if (whisperStreamOn()) {
+      feedStream(samples, sampleRate);
+      return;
+    }
     if (cutMode() === "pause") {
       feedPause(samples, sampleRate);
       return;
@@ -3889,6 +3925,10 @@
   }
 
   function flushExternal() {
+    if (whisperStreamOn() || streamConfirmed || streamTail) {
+      flushStream();
+      return;
+    }
     extSilence = 0;
     extVoiced = false;
     if (segmentKind() !== "energy") return;
@@ -4094,20 +4134,22 @@
     return sa >= sb ? a : b;
   }
 
-  async function pcTranscribeText(samples, quiet) {
-    if (settings.asrRoute !== "pc") return { text: "", lang: "" };
+  async function pcInfer(samples, quiet, format) {
+    if (settings.asrRoute !== "pc") return { text: "", lang: "", segments: [], ok: false, status: 0 };
     var origin = pcOrigin();
     if (!origin) {
       asrNote = "PC API 주소를 넣고 저장하세요";
       refreshStatus();
       if (!quiet) toast("PC API 주소는 https 로 넣고 저장하세요.");
-      return { text: "", lang: "" };
+      return { text: "", lang: "", segments: [], ok: false, status: 0 };
     }
-    asrNote = "PC에 보내는 중";
-    refreshStatus();
+    if (!quiet) {
+      asrNote = "PC에 보내는 중";
+      refreshStatus();
+    }
     var body = new FormData();
     body.append("file", wavBlob(samples), "clip.wav");
-    body.append("response_format", "json");
+    body.append("response_format", format || "json");
     body.append("temperature", "0");
     if (lastHeardLang) body.append("language", lastHeardLang);
     var res = null;
@@ -4117,7 +4159,7 @@
       asrNote = "PC API에 연결하지 못했습니다";
       refreshStatus();
       if (!quiet) toast(asrNote);
-      return { text: "", lang: "" };
+      return { text: "", lang: "", segments: [], ok: false, status: 0 };
     }
     var data = null;
     try { data = await res.json(); } catch (e2) { data = null; }
@@ -4125,19 +4167,400 @@
       asrNote = "비밀 키가 맞지 않습니다";
       refreshStatus();
       if (!quiet) toast(asrNote);
-      return { text: "", lang: "" };
+      return { text: "", lang: "", segments: [], ok: false, status: 401 };
     }
     if (!res.ok) {
-      asrNote = "PC 받아쓰기 실패";
-      refreshStatus();
-      if (!quiet) toast("PC 받아쓰기가 실패했습니다.");
-      return { text: "", lang: "" };
+      if (!quiet) {
+        asrNote = "PC 받아쓰기 실패";
+        refreshStatus();
+        toast("PC 받아쓰기가 실패했습니다.");
+      }
+      return { text: "", lang: "", segments: [], ok: false, status: res.status };
+    }
+    var segments = [];
+    if (data && Array.isArray(data.segments)) {
+      data.segments.forEach(function (seg) {
+        if (!seg) return;
+        segments.push({
+          start: Number(seg.start) || 0,
+          end: Number(seg.end) || 0,
+          text: String(seg.text || "").replace(/\s+/g, " ").trim()
+        });
+      });
     }
     var text = String(data && data.text ? data.text : "").replace(/\s+/g, " ").trim();
+    if (!text && segments.length) {
+      text = segments.map(function (seg) { return seg.text; }).filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+    }
     var heardLang = "";
     if (text && textMatchesLang(text, settings.lang1)) heardLang = settings.lang1;
     else if (text && textMatchesLang(text, settings.lang2)) heardLang = settings.lang2;
-    return { text: text, lang: heardLang };
+    return { text: text, lang: heardLang, segments: segments, ok: true, status: res.status };
+  }
+
+  async function pcTranscribeText(samples, quiet) {
+    var heard = await pcInfer(samples, quiet, "json");
+    return { text: heard.text, lang: heard.lang };
+  }
+
+  var streamParts = [];
+  var streamCount = 0;
+  var streamSinceSend = 0;
+  var streamGen = 1;
+  var streamAudioGen = 1;
+  var streamBusy = false;
+  var streamWant = false;
+  var streamPrev = "";
+  var streamConfirmed = "";
+  var streamTail = "";
+  var streamCommitted = "";
+  var streamLang = "";
+  var streamSilence = 0;
+  var streamRawMax = 0;
+  var streamLive = null;
+  var streamTask = Promise.resolve();
+  var streamLast = { full: "", sent: 0, segments: [], gen: 0 };
+
+  function whisperStreamOn() {
+    return settings.asrRoute === "pc" && settings.pcEngine === "whisper-stream";
+  }
+
+  function pauseStreamSamples() {
+    return Math.round(16000 * chromeLinePlan().pause / 1000);
+  }
+
+  function resetStream() {
+    streamGen += 1;
+    streamAudioGen += 1;
+    streamParts = [];
+    streamCount = 0;
+    streamSinceSend = 0;
+    streamBusy = false;
+    streamWant = false;
+    streamPrev = "";
+    streamConfirmed = "";
+    streamTail = "";
+    streamCommitted = "";
+    streamLang = "";
+    streamSilence = 0;
+    streamRawMax = 0;
+    streamLive = null;
+    streamLast = { full: "", sent: 0, segments: [], gen: 0 };
+    streamTask = Promise.resolve();
+  }
+
+  function dropStreamLive() {
+    if (!streamLive) return;
+    var live = streamLive;
+    streamLive = null;
+    records = records.filter(function (item) { return item !== live; });
+  }
+
+  function takeStream(limit) {
+    var n = streamCount;
+    if (limit != null && limit < n) n = limit;
+    var out = new Float32Array(Math.max(0, n));
+    var pos = 0;
+    var i;
+    for (i = 0; i < streamParts.length && pos < n; i++) {
+      var part = streamParts[i];
+      var room = n - pos;
+      if (part.length <= room) {
+        out.set(part, pos);
+        pos += part.length;
+      } else {
+        out.set(part.subarray(0, room), pos);
+        pos = n;
+      }
+    }
+    return out;
+  }
+
+  function dropStreamFront(n) {
+    n = Math.round(n);
+    if (n <= 0 || !streamCount) return;
+    if (n > streamCount) n = streamCount;
+    var old = streamCount - streamSinceSend;
+    if (old < 0) old = 0;
+    var left = n;
+    while (left > 0 && streamParts.length) {
+      if (streamParts[0].length <= left) {
+        left -= streamParts[0].length;
+        streamParts.shift();
+      } else {
+        streamParts[0] = streamParts[0].subarray(left);
+        left = 0;
+      }
+    }
+    streamCount -= n;
+    if (n > old) streamSinceSend = Math.max(0, streamCount);
+    streamAudioGen += 1;
+    streamLast = { full: "", sent: 0, segments: [], gen: 0 };
+    streamCommitted = "";
+    streamRawMax = 0;
+  }
+
+  function paintStreamLive(confirmed, tail, lang) {
+    var shown = [confirmed, tail].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+    if (!shown) {
+      dropStreamLive();
+      saveRecords();
+      render();
+      return;
+    }
+    var hold = tail ? compactHeard(tail).chars.length : 0;
+    if (!streamLive || !streamLive.growing || records.indexOf(streamLive) < 0) {
+      if (demo) {
+        records = [];
+        demo = false;
+      }
+      streamLive = {
+        id: Date.now() + records.length + 1,
+        startMs: sessionMs(),
+        srcLang: lang || settings.lang1,
+        srcText: shown,
+        tgtLang: "",
+        tgtText: "듣는 중",
+        status: "hearing",
+        engine: "pc-whisper-stream",
+        growing: true,
+        hold: hold,
+        session: winSession
+      };
+      records.push(streamLive);
+    } else {
+      streamLive.srcText = shown;
+      streamLive.hold = hold;
+      if (lang) streamLive.srcLang = lang;
+      streamLive.tgtText = "듣는 중";
+      streamLive.status = "hearing";
+      streamLive.growing = true;
+    }
+    interim = "";
+    saveRecords();
+    follow = true;
+    render();
+  }
+
+  function emitStreamLines(text, lang) {
+    var left = window.RtbClean.fixSentenceSpace(String(text || "").replace(/\s+/g, " ").trim());
+    var guard = 0;
+    while (left && guard < 8) {
+      guard += 1;
+      var split = window.RtbClean.splitTranscriptLine(left, chromeLinePlan().chars);
+      if (!split || !split.rest) {
+        pushTranscript(left, lang, "pc-whisper-stream", true);
+        return;
+      }
+      pushTranscript(split.head, lang, "pc-whisper-stream", true);
+      left = split.rest;
+    }
+  }
+
+  function applyStreamCommit(decision, lang) {
+    if (!decision || !decision.commit) return;
+    var commit = decision.commit;
+    emitStreamLines(commit, lang || streamLang || settings.lang1);
+    var seconds = window.RtbClean.streamTrimSeconds(streamLast.segments, commit);
+    var drop = 0;
+    if (seconds > 0) drop = Math.round(seconds * 16000);
+    else if (streamLast.full && streamLast.sent && streamLast.gen === streamAudioGen) {
+      drop = Math.round(streamLast.sent * window.RtbClean.streamTrimRatio(commit, streamLast.full));
+    }
+    var unfinished = !!(decision.keepConfirmed || decision.keepTail);
+    var sent = streamLast.sent || 0;
+    if (!unfinished && sent && window.RtbClean.streamTrimRatio(commit, streamLast.full || commit) >= 0.98) {
+      drop = sent;
+    } else if (unfinished) {
+      var cap = Math.max(0, Math.min(streamCount, sent || streamCount) - 1920);
+      if (drop > cap) drop = cap;
+    } else if (sent && drop > sent) {
+      drop = sent;
+    }
+    if (drop > streamCount) drop = streamCount;
+    if (drop < 800) drop = 0;
+    streamConfirmed = decision.keepConfirmed || "";
+    streamTail = decision.keepTail || "";
+    if (drop) {
+      dropStreamFront(drop);
+      streamPrev = [streamConfirmed, streamTail].filter(Boolean).join(" ").trim();
+    } else {
+      streamCommitted = [streamCommitted, commit].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+      streamPrev = [streamCommitted, streamConfirmed, streamTail].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+    }
+    if (!streamConfirmed && !streamTail) dropStreamLive();
+    else paintStreamLive(streamConfirmed, streamTail, lang || streamLang);
+    saveRecords();
+    render();
+  }
+
+  function stripStreamCommitted(text) {
+    var done = String(streamCommitted || "").replace(/\s+/g, " ").trim();
+    var t = String(text || "").replace(/\s+/g, " ").trim();
+    if (!done || t.indexOf(done) !== 0) return t;
+    var next = t.charAt(done.length);
+    if (!next || next === " " || ".?!…。？！".indexOf(next) >= 0) return t.slice(done.length).trim();
+    return t;
+  }
+
+  function commitStreamPause() {
+    var decision = window.RtbClean.streamCommit(streamConfirmed, streamTail, {
+      pause: true,
+      force: streamSilence >= pauseStreamSamples() * 2,
+      maxChars: chromeLinePlan().chars
+    });
+    if (!decision.commit) return;
+    applyStreamCommit(decision, streamLang || settings.lang1);
+  }
+
+  function applyStreamHypothesis(heard, sentCount, audioGen) {
+    if (audioGen !== streamAudioGen) return;
+    var raw = String(heard.text || "").trim();
+    if (!raw) {
+      if (heard.audible) noteBlankTranscript(true);
+      if (streamSilence >= pauseStreamSamples()) commitStreamPause();
+      return;
+    }
+    var post = 0;
+    try { post = pcmLevel(takeStream(sentCount)); } catch (e) { post = 0; }
+    var cleaned = window.RtbClean.cleanTranscript(repeatedTake(correctSpelling(raw)), { lowEnergy: post < 20 });
+    if (!cleaned || !fitsSelectedLanguages(cleaned)) {
+      if (streamSilence >= pauseStreamSamples()) commitStreamPause();
+      return;
+    }
+    var lang = textMatchesLang(cleaned, settings.lang1) ? settings.lang1 : settings.lang2;
+    streamLang = lang;
+    lastHeardLang = lang;
+    noteHeardTranscript();
+    cleaned = stripStreamCommitted(cleaned);
+    var step = window.RtbClean.streamExtend(streamConfirmed, stripStreamCommitted(streamPrev), cleaned);
+    streamPrev = step.prev;
+    streamConfirmed = step.confirmed;
+    streamTail = step.tail;
+    streamLast = { full: cleaned, sent: sentCount, segments: heard.segments || [], gen: audioGen };
+    paintStreamLive(streamConfirmed, streamTail, lang);
+    var decision = window.RtbClean.streamCommit(streamConfirmed, streamTail, {
+      pause: streamSilence >= pauseStreamSamples(),
+      force: streamSilence >= pauseStreamSamples() * 2,
+      maxChars: chromeLinePlan().chars
+    });
+    if (decision.commit) applyStreamCommit(decision, lang);
+  }
+
+  function capStreamBuffer() {
+    if (streamCount <= window.RtbClean.STREAM_MAX_SAMPLES) return;
+    var overflow = window.RtbClean.streamCommit(streamConfirmed, streamTail, {
+      pause: true,
+      force: true,
+      maxChars: chromeLinePlan().chars
+    });
+    if (overflow.commit) applyStreamCommit(overflow, streamLang || settings.lang1);
+    if (streamCount > window.RtbClean.STREAM_MAX_SAMPLES) {
+      dropStreamFront(streamCount - 16000 * 8);
+      streamPrev = "";
+      streamConfirmed = "";
+      streamTail = "";
+      streamCommitted = "";
+      dropStreamLive();
+      render();
+    }
+  }
+
+  function maybeSendStream(force) {
+    if (!whisperStreamOn()) return streamTask;
+    if (streamBusy) {
+      streamWant = true;
+      return streamTask;
+    }
+    capStreamBuffer();
+    var pause = streamSilence >= pauseStreamSamples();
+    var grew = streamSinceSend >= window.RtbClean.STREAM_EVERY_SAMPLES;
+    var enough = streamCount >= window.RtbClean.STREAM_MIN_SAMPLES;
+    if (!force && !grew && !(pause && streamSinceSend >= 6400 && enough)) return streamTask;
+    if (streamCount < 8000) return streamTask;
+    var samples = takeStream();
+    var post = pcmLevel(samples);
+    var audible = window.RtbClean.chunkWorthSending(streamRawMax, post, window.RtbClean.micGate(micSpec()));
+    if (!audible) {
+      if (pause) commitStreamPause();
+      streamSinceSend = 0;
+      return streamTask;
+    }
+    streamBusy = true;
+    streamWant = false;
+    streamSinceSend = 0;
+    var gen = streamGen;
+    var audioGen = streamAudioGen;
+    var sentCount = samples.length;
+    asrNote = "PC에 보내는 중";
+    refreshStatus();
+    var task = pcInfer(samples, true, "verbose_json").then(function (heard) {
+      if (gen !== streamGen || !whisperStreamOn()) return heard;
+      if (!heard.ok && heard.status !== 401) return pcInfer(samples, true, "json");
+      return heard;
+    }).then(function (heard) {
+      if (!heard || gen !== streamGen || !whisperStreamOn()) return;
+      heard.audible = audible;
+      if (!heard.ok) return;
+      asrNote = "PC API Whisper 스트리밍";
+      applyStreamHypothesis(heard, sentCount, audioGen);
+      refreshStatus();
+    }).catch(function () {
+      if (gen !== streamGen) return;
+      asrNote = "PC API에 연결하지 못했습니다";
+      refreshStatus();
+    }).then(function () {
+      if (gen !== streamGen) return;
+      streamBusy = false;
+      if (streamWant && whisperStreamOn()) {
+        streamWant = false;
+        return maybeSendStream(true);
+      }
+    });
+    streamTask = task;
+    return task;
+  }
+
+  function feedStream(samples, sampleRate) {
+    if (!whisperStreamOn()) return;
+    var pcm = levelPcm(downsample(samples, sampleRate));
+    if (!pcm || !pcm.length || dropUtt) return;
+    var voiced = pcmLevel(pcm) >= window.RtbClean.micGate(micSpec());
+    streamParts.push(pcm);
+    streamCount += pcm.length;
+    streamSinceSend += pcm.length;
+    if (voiced) {
+      streamSilence = 0;
+      if (lastChunkRaw > streamRawMax) streamRawMax = lastChunkRaw;
+    } else if (streamCount) {
+      streamSilence += pcm.length;
+    }
+    if (streamBusy && streamCount > window.RtbClean.STREAM_MAX_SAMPLES) {
+      dropStreamFront(streamCount - 16000 * 8);
+      streamPrev = "";
+      streamConfirmed = "";
+      streamTail = "";
+      streamCommitted = "";
+      streamWant = true;
+      dropStreamLive();
+    }
+    maybeSendStream(false);
+  }
+
+  function flushStream() {
+    if (!streamCount && !streamConfirmed && !streamTail) {
+      resetStream();
+      return;
+    }
+    var decision = window.RtbClean.streamCommit(streamConfirmed, streamTail, {
+      pause: true,
+      force: true,
+      maxChars: chromeLinePlan().chars
+    });
+    if (decision.commit) applyStreamCommit(decision, streamLang || settings.lang1);
+    dropStreamLive();
+    resetStream();
+    render();
   }
 
   async function geminiTranscribeText(samples, quiet) {
@@ -4441,6 +4864,7 @@
     extSilence = 0;
     extVoiced = false;
     segQueue = [];
+    resetStream();
     beginWindowSession();
     try { if (vad) vad.reset(); } catch (e) {}
     try { if (asrBuffer) asrBuffer.reset(); } catch (e2) {}
@@ -5042,6 +5466,28 @@
     noteBlank: noteBlankTranscript,
     worthSending: function (pre, post) {
       return window.RtbClean.chunkWorthSending(pre, post, window.RtbClean.micGate(micSpec()));
+    }
+  };
+  window.RtbStream = {
+    feed: function (samples) { feedStream(samples, 16000); },
+    idle: function () { return streamTask; },
+    state: function () {
+      return {
+        on: whisperStreamOn(),
+        confirmed: streamConfirmed,
+        tail: streamTail,
+        count: streamCount,
+        busy: streamBusy,
+        lines: records.map(function (item) {
+          return {
+            text: item.srcText,
+            engine: item.engine,
+            growing: !!item.growing,
+            hold: item.hold || 0,
+            status: item.status
+          };
+        })
+      };
     }
   };
 
